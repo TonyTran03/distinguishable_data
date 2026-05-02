@@ -1,7 +1,6 @@
 # models/cvae.py
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
@@ -74,17 +73,6 @@ def _elbo_loss(x, x_hat, mu, logvar, beta: float):
     return recon + beta * kl, recon, kl
 
 
-def _run_tag(cfg: Config) -> str:
-    noise = str(cfg.decoder_noise).replace(".", "p")
-    beta  = str(cfg.beta).replace(".", "p")
-    lr    = str(cfg.lr).replace(".", "p")
-    return f"x{cfg.x_transform}_z{cfg.z_dim}_h{cfg.hidden}_b{beta}_lr{lr}_dn{noise}_seed{cfg.seed}"
-
-
-def _default_ckpt_path(cfg: Config) -> Path:
-    return cfg.out_dir / f"cvae_best_{_run_tag(cfg)}.pt"
-
-
 @torch.no_grad()
 def _evaluate(model, loader, device, beta: float):
     model.eval()
@@ -98,44 +86,24 @@ def _evaluate(model, loader, device, beta: float):
     return {"loss": tot/n, "recon": rec/n, "kl": kl/n}
 
 
-def _load_ckpt(ckpt_path: Path, device) -> Tuple["CVAE", np.ndarray, np.ndarray, object]:
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    cfg = Config(**ckpt["cfg"])
-    mean = np.asarray(ckpt["scaler_mean"], dtype=np.float32)
-    scale = np.asarray(ckpt["scaler_scale"], dtype=np.float32)
-    x_dim = mean.shape[0]
-    model = CVAE(x_dim=x_dim, c_dim=2, z_dim=cfg.z_dim, hidden=cfg.hidden).to(device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
-    transform = make_transform(cfg.x_transform)
-    return model, mean, scale, transform
-
-
 def train_cvae(
     X: np.ndarray,
     y: np.ndarray,
     cfg: Optional[Config] = None,
-    ckpt_path: Optional[Path] = None,
     device=None,
     verbose: bool = True,
 ) -> Tuple["CVAE", np.ndarray, np.ndarray, object]:
     """
-    Train a CVAE on (X, y). Saves best-by-val-loss checkpoint to ckpt_path
-    Returns (model, scaler_mean, scaler_scale, transform)
+    Train a CVAE on (X, y).
+
+    Returns (model, scaler_mean, scaler_scale, transform).
     """
     from src.data import make_loaders
 
     if cfg is None:
         cfg = Config()
-    if ckpt_path is None:
-        ckpt_path = _default_ckpt_path(cfg)
-    else:
-        ckpt_path = Path(ckpt_path)
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    cfg.ensure_dirs()
-    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
     train_loader, val_loader, scaler = make_loaders(
         X, y,
@@ -173,16 +141,6 @@ def train_cvae(
         if val_metrics["loss"] < best_val:
             best_val = val_metrics["loss"]
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            torch.save(
-                {
-                    "model_state": best_state,
-                    "scaler_mean": scaler.mean_,
-                    "scaler_scale": scaler.scale_,
-                    "cfg": cfg.__dict__,
-                    "x_transform": cfg.x_transform,
-                },
-                ckpt_path,
-            )
 
         if verbose and (epoch == 1 or epoch % 10 == 0):
             print(
@@ -229,36 +187,30 @@ def sample_cvae(
     n1: int,
     seed: int = 42,
     cfg: Optional[Config] = None,
-    ckpt_path: Optional[Path] = None,
-    retrain: bool = False,
     device=None,
 ):
     """
-    Train (or load) a CVAE on (X, y), then sample n0+n1 synthetic rows.
-      returns (X_syn, y_syn) with class 0 rows first, then class 1.
-
-    If a checkpoint already exists at ckpt_path, it is reused unless
-    retrain=True. Otherwise a fresh model is trained and saved.
+    Train a CVAE on (X, y), then sample n0+n1 synthetic rows.
+    Returns (X_syn, y_syn) with class 0 rows first, then class 1.
     """
     if cfg is None:
         cfg = Config()
     cfg.seed = seed
 
-    if ckpt_path is None:
-        ckpt_path = _default_ckpt_path(cfg)
-    else:
-        ckpt_path = Path(ckpt_path)
-
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if ckpt_path.exists() and not retrain:
-        model, mean, scale, transform = _load_ckpt(ckpt_path, device)
-    else:
-        model, mean, scale, transform = train_cvae(
-            X, y, cfg=cfg, ckpt_path=ckpt_path, device=device
-        )
+    model, mean, scale, transform = train_cvae(X, y, cfg=cfg, device=device)
 
+    return _sample_from_model(model, n0, n1, mean, scale, transform, device, seed)
+
+
+def sample_trained_cvae(cvae_state, n0: int, n1: int, seed: int = 42):
+    """
+    Sample from the in-memory state returned by train_cvae.
+    """
+    model, mean, scale, transform = cvae_state
+    device = next(model.parameters()).device
     return _sample_from_model(model, n0, n1, mean, scale, transform, device, seed)
 
 
