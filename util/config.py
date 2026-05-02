@@ -9,7 +9,7 @@ class Config:
     output_path: Path = Path("data") # Defaulted to HIV dataset
     test_size: float = 0.2
 
-#______________________________________________________
+#____________________
     # CVAE and GANs hyperparameters
     z_dim: int = 16
     hidden: int = 128
@@ -21,12 +21,10 @@ class Config:
     # CVAE specific
     beta: float = 0.5
     decoder_noise: float = 0
-#____________________   __________________________________
+#____________________
     # Keys inside .RData
     x_key: str = "x"
     y_key: str = "y"
-
-
 
     def transform_name(self) -> str:
         return (self.x_transform or "none").strip().lower()
