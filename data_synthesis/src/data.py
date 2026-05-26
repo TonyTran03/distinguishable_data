@@ -78,8 +78,8 @@ def make_loaders(
     X_train_t = torch.tensor(X_train)
     X_val_t   = torch.tensor(X_val)
 
-    y_train_t = torch.tensor(y_train)
-    y_val_t   = torch.tensor(y_val)
+    y_train_t = torch.tensor(y_train, dtype=torch.long)
+    y_val_t   = torch.tensor(y_val, dtype=torch.long)
 
     c_train = F.one_hot(y_train_t, num_classes=num_classes).float()
     c_val   = F.one_hot(y_val_t,   num_classes=num_classes).float()
