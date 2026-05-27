@@ -105,12 +105,19 @@ def train_cvae(
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(cfg.seed)
+    loader_generator = torch.Generator().manual_seed(cfg.seed)
+
     train_loader, val_loader, scaler = make_loaders(
         X, y,
         test_size=cfg.test_size,
         batch_size=cfg.batch_size,
         seed=cfg.seed,
         x_transform=cfg.x_transform,
+        torch_generator=loader_generator,
     )
 
     x_dim = X.shape[1]
@@ -188,6 +195,7 @@ def sample_cvae(
     seed: int = 42,
     cfg: Optional[Config] = None,
     device=None,
+    verbose: bool = True,
 ):
     """
     Train a CVAE on (X, y), then sample n0+n1 synthetic rows.
@@ -200,7 +208,7 @@ def sample_cvae(
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model, mean, scale, transform = train_cvae(X, y, cfg=cfg, device=device)
+    model, mean, scale, transform = train_cvae(X, y, cfg=cfg, device=device, verbose=verbose)
 
     return _sample_from_model(model, n0, n1, mean, scale, transform, device, seed)
 

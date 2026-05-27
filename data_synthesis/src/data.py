@@ -55,6 +55,7 @@ def make_loaders(
     seed: int,
     num_classes: int = 2,
     x_transform: str = "none", 
+    torch_generator: torch.Generator | None = None,
 ) -> Tuple[DataLoader, DataLoader, StandardScaler]:
 
     # Split first 
@@ -89,6 +90,7 @@ def make_loaders(
         batch_size=batch_size,
         shuffle=True,
         drop_last=False,
+        generator=torch_generator,
     )
 
     val_loader = DataLoader(

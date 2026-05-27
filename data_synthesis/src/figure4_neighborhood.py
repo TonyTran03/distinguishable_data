@@ -674,6 +674,94 @@ def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
     return ax
 
 
+def plot_supplemental_edge_status_matrices(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    exemplar_ds="Breast Cancer",
+    comparison_methods=None,
+    threshold=1e-7,
+    save_path=None,
+):
+    """Compact 2x2 version of the Figure 4 edge-status matrices for supplements."""
+    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
+    dataset_order = list(dataset_order or real_data.keys())
+    comparison_methods = list(comparison_methods or ["Bootstrap", "Column-wise", "CVAE", "GMM"])
+    comparison_methods = [m for m in comparison_methods if m in method_order][:4]
+    if len(comparison_methods) < 4:
+        comparison_methods.extend([m for m in method_order if m not in comparison_methods])
+    comparison_methods = comparison_methods[:4]
+
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
+    real = structures[exemplar_ds]["real"]
+    real_edges = real["edges"]
+    real_partial = real["partial"]
+    order = get_real_structure_order(real_partial)
+    feature_index = make_feature_index_table(names, order)
+
+    fig, axes = plt.subplots(2, 2, figsize=(10.8, 9.3), constrained_layout=False)
+    panels = ["A", "B", "C", "D"]
+    for ax, panel, method in zip(axes.flat, panels, comparison_methods):
+        syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
+        status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
+        plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
+
+    legend_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.925),
+        ncol=4,
+        frameon=False,
+        fontsize=8.6,
+    )
+    fig.suptitle(
+        f"Supplemental Figure. Structural comparison matrices for {exemplar_ds}",
+        y=0.975,
+        fontsize=14.5,
+        weight="semibold",
+    )
+    fig.text(
+        0.5,
+        0.905,
+        "Real and synthetic conditional-dependency networks are ordered by the real partial-correlation structure.",
+        ha="center",
+        va="center",
+        fontsize=8.8,
+        color="#444444",
+    )
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.060, wspace=0.12, hspace=0.25)
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    return Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        feature_index=feature_index,
+    )
+
+
 def plot_edge_status_example(ax, title, example="preserved_lost"):
     status = np.zeros((5, 5), dtype=int)
     if example == "preserved_lost":
@@ -948,12 +1036,12 @@ def plot_figure4_edge_status_matrices(
         "CVAE": "mixed preservation and synthetic-only structure",
     }
 
-    fig = plt.figure(figsize=(13.8, 16.2), constrained_layout=False)
+    fig = plt.figure(figsize=(13.8, 15.0), constrained_layout=False)
     gs = fig.add_gridspec(
         7,
         4,
-        height_ratios=[0.92, 0.32, 1.28, 0.10, 1.28, 0.34, 0.88],
-        hspace=0.26,
+        height_ratios=[0.80, 0.24, 1.45, 0.06, 1.45, 0.20, 0.72],
+        hspace=0.22,
         wspace=0.24,
     )
 
@@ -1016,7 +1104,7 @@ def plot_figure4_edge_status_matrices(
     divider_ax.text(
         0.5,
         0.05,
-        "A-D. Structural comparison matrices between real and synthetic HIV networks",
+        f"A-D. Structural comparison matrices between real and synthetic {exemplar_ds} networks",
         transform=divider_ax.transAxes,
         ha="center",
         va="bottom",
@@ -1050,7 +1138,7 @@ def plot_figure4_edge_status_matrices(
         fontsize=15.5,
         weight="semibold",
     )
-    fig.subplots_adjust(left=0.055, right=0.990, top=0.895, bottom=0.060)
+    fig.subplots_adjust(left=0.055, right=0.990, top=0.885, bottom=0.055)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
