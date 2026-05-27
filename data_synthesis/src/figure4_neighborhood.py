@@ -799,7 +799,7 @@ def plot_real_status_zoom(ax, status_matrix, order, title, window=12):
     ax.axvline(focus_local + 0.5, color="#111111", linewidth=1.1)
     ax.text(
         0.5,
-        -0.12,
+        -0.20,
         f"Focus on feature #{focus_matrix_index}: its row/column is converted to the graph at right.",
         transform=ax.transAxes,
         ha="center",
@@ -892,7 +892,7 @@ def plot_feature_row_graph(
     ax.text(
         0.5,
         -0.08,
-        f"Graph view of feature #{anchor_index}; node numbers match matrix indices.",
+        f"Graph view of feature #{anchor_index}",
         transform=ax.transAxes,
         ha="center",
         va="top",
@@ -952,8 +952,8 @@ def plot_figure4_edge_status_matrices(
     gs = fig.add_gridspec(
         7,
         4,
-        height_ratios=[0.92, 0.14, 1.28, 0.10, 1.28, 0.34, 0.88],
-        hspace=0.18,
+        height_ratios=[0.92, 0.32, 1.28, 0.10, 1.28, 0.34, 0.88],
+        hspace=0.26,
         wspace=0.24,
     )
 
@@ -1015,11 +1015,11 @@ def plot_figure4_edge_status_matrices(
     divider_ax.axis("off")
     divider_ax.text(
         0.5,
-        0.22,
+        0.05,
         "A-D. Structural comparison matrices between real and synthetic HIV networks",
         transform=divider_ax.transAxes,
         ha="center",
-        va="center",
+        va="bottom",
         fontsize=11.5,
         weight="semibold",
     )
