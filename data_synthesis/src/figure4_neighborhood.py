@@ -659,7 +659,8 @@ def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
                 fontsize=8.2, color="#4B4B4B")
 
     n = len(order)
-    ticks = np.arange(0, n, 10)
+    tick_step = 1 if n <= 12 else 5 if n <= 35 else 10
+    ticks = np.arange(0, n, tick_step)
     labels = [str(i + 1) for i in ticks]
     ax.set_xticks(ticks)
     ax.set_yticks(ticks)
@@ -711,7 +712,7 @@ def plot_supplemental_edge_status_matrices(
     order = get_real_structure_order(real_partial)
     feature_index = make_feature_index_table(names, order)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.8, 9.3), constrained_layout=False)
+    fig, axes = plt.subplots(2, 2, figsize=(10.8, 10.0), constrained_layout=False)
     panels = ["A", "B", "C", "D"]
     for ax, panel, method in zip(axes.flat, panels, comparison_methods):
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
@@ -731,23 +732,18 @@ def plot_supplemental_edge_status_matrices(
         ncol=4,
         frameon=False,
         fontsize=8.6,
+        handlelength=1.4,
+        handletextpad=0.55,
+        columnspacing=1.45,
+        borderaxespad=0.8,
     )
     fig.suptitle(
-        f"Supplemental Figure. Structural comparison matrices for {exemplar_ds}",
-        y=0.975,
+        f"Structural comparison matrices for {exemplar_ds}",
+        y=0.985,
         fontsize=14.5,
         weight="semibold",
     )
-    fig.text(
-        0.5,
-        0.905,
-        "Real and synthetic conditional-dependency networks are ordered by the real partial-correlation structure.",
-        ha="center",
-        va="center",
-        fontsize=8.8,
-        color="#444444",
-    )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.060, wspace=0.12, hspace=0.25)
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.845, bottom=0.070, wspace=0.14, hspace=0.30)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")

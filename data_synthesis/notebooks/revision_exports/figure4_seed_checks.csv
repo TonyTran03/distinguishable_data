@@ -1,0 +1,13 @@
+dataset,method,seed,same_seed_equal,different_seed_changed,shape,class_counts
+HIV,Bootstrap,42,True,True,"(91, 63)","(23, 68)"
+HIV,Column-wise,42,True,True,"(91, 63)","(23, 68)"
+HIV,GMM,42,True,True,"(91, 63)","(23, 68)"
+HIV,CVAE,42,True,True,"(91, 63)","(23, 68)"
+Breast Cancer,Bootstrap,42,True,True,"(569, 30)","(212, 357)"
+Breast Cancer,Column-wise,42,True,True,"(569, 30)","(212, 357)"
+Breast Cancer,GMM,42,True,True,"(569, 30)","(212, 357)"
+Breast Cancer,CVAE,42,True,True,"(569, 30)","(212, 357)"
+Diabetes,Bootstrap,42,True,True,"(768, 8)","(500, 268)"
+Diabetes,Column-wise,42,True,True,"(768, 8)","(500, 268)"
+Diabetes,GMM,42,True,True,"(768, 8)","(500, 268)"
+Diabetes,CVAE,42,True,True,"(768, 8)","(500, 268)"
