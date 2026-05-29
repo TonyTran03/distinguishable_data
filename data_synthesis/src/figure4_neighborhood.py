@@ -1159,7 +1159,7 @@ def plot_figure4_edge_status_matrices(
         3,
         4,
         height_ratios=[1.0, 1.0, 0.48],
-        hspace=0.55,
+        hspace=0.42,
         wspace=0.18,
     )
 
