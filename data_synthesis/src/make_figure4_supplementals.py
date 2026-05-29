@@ -25,6 +25,7 @@ from models.gmm import sample_gmm
 from models.iid_columnwise import sample_columnwise
 from src.data import load_rdata_xy_names
 from src.figure4_neighborhood import (
+    plot_edge_status_examples,
     plot_figure4_edge_status_matrices,
     plot_supplemental_edge_status_matrices,
 )
@@ -192,7 +193,21 @@ def main():
         save_path=args.output_dir / "figure_4_edge_status_matrices.png",
     )
 
-    all_metrics = [main_result.metrics.assign(figure_dataset="HIV")]
+    examples_result = plot_edge_status_examples(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_names,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=DATASET_ORDER,
+        method_order=METHOD_ORDER,
+        exemplar_ds="HIV",
+        save_path=args.output_dir / "supplemental_figure_s1_edge_status_examples.png",
+    )
+
+    all_metrics = [
+        main_result.metrics.assign(figure_dataset="HIV"),
+        examples_result.metrics.assign(figure_dataset="HIV examples"),
+    ]
     for dataset in ["Breast Cancer", "Diabetes"]:
         result = plot_supplemental_edge_status_matrices(
             real_data=real_data,
