@@ -363,7 +363,7 @@ def plot_summary_metrics(axs, metrics, dataset_order=None, method_order=None, me
             )
         ax.set_title(METRIC_LABELS.get(metric, metric), fontsize=9.2, pad=6)
         ax.set_xticks(x)
-        ax.set_xticklabels(dataset_order, rotation=20, ha="right", fontsize=8.0)
+        ax.set_xticklabels(dataset_order, fontsize=8.0)
         ax.tick_params(axis="y", labelsize=8.0)
         ax.grid(axis="y", color="#D8D8D8", linewidth=0.7, alpha=0.75)
         ax.spines["top"].set_visible(False)
@@ -738,7 +738,6 @@ def plot_supplemental_edge_status_matrices(
         fig.add_subplot(gs[2, 3]),
     ]
     plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[0].text(-0.30, 1.16, "E", transform=metric_axes[0].transAxes, fontsize=14, weight="bold")
     metric_axes[1].text(
         0.5,
         1.24,
@@ -1207,7 +1206,6 @@ def plot_figure4_edge_status_matrices(
         fig.add_subplot(gs[2, 3]),
     ]
     plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[0].text(-0.28, 1.18, "E", transform=metric_axes[0].transAxes, fontsize=15, weight="bold")
     metric_axes[1].text(
         0.5,
         1.24,
@@ -1299,7 +1297,6 @@ def plot_figure4_neighborhood_overlap(
 
     metric_axes = [fig.add_subplot(gs[2, i]) for i in range(3)]
     plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[0].text(-0.23, 1.16, "E", transform=metric_axes[0].transAxes, fontsize=15, weight="bold")
     handles = [
         Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved"),
         Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only"),
