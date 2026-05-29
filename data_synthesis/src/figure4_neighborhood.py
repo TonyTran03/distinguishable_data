@@ -1124,7 +1124,6 @@ def plot_figure4_edge_status_matrices(
     exemplar_ds="HIV",
     comparison_methods=None,
     threshold=1e-7,
-    save_path=None,
 ):
     method_order = list(method_order or synthetic_data[exemplar_ds].keys())
     dataset_order = list(dataset_order or real_data.keys())
@@ -1221,16 +1220,13 @@ def plot_figure4_edge_status_matrices(
     )
     metric_axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
 
-    fig.suptitle(
-        "Figure 4. Real conditional-dependency preservation and synthetic structural deviation",
-        y=0.978,
-        fontsize=15.5,
-        weight="semibold",
-    )
+    # fig.suptitle(
+    #     "Figure 4. Real conditional-dependency preservation and synthetic structural deviation",
+    #     y=0.978,
+    #     fontsize=15.5,
+    #     weight="semibold",
+    # )
     fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.070, wspace=0.14, hspace=0.30)
-
-    if save_path is not None:
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return Figure4Result(
         fig=fig,
