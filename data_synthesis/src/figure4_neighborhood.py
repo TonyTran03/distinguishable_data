@@ -335,15 +335,7 @@ def _fit_structures(real_data, synthetic_data, alphas=None, threshold=1e-7, data
     return structures, pd.DataFrame(rows)
 
 
-def plot_summary_metrics(
-    axs,
-    metrics,
-    dataset_order=None,
-    method_order=None,
-    metric_names=None,
-    palette=None,
-    show_titles=True,
-):
+def plot_summary_metrics(axs, metrics, dataset_order=None, method_order=None, metric_names=None, palette=None):
     """Plot grouped metric bars for Panel E."""
     if not isinstance(axs, Iterable) or hasattr(axs, "bar"):
         axs = [axs]
@@ -369,8 +361,7 @@ def plot_summary_metrics(
                 x + offset, vals, width=width, label=method, color=palette.get(method, "#BBBBBB"),
                 edgecolor="#333333", linewidth=0.75
             )
-        if show_titles:
-            ax.set_title(METRIC_LABELS.get(metric, metric), fontsize=9.2, pad=6)
+        ax.set_title(METRIC_LABELS.get(metric, metric), fontsize=9.2, pad=6)
         ax.set_xticks(x)
         ax.set_xticklabels(dataset_order, rotation=20, ha="right", fontsize=8.0)
         ax.tick_params(axis="y", labelsize=8.0)
@@ -579,7 +570,7 @@ def plot_figure4_edge_overlap_matrix(
     ]
     fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.925), ncol=5, frameon=False, fontsize=8.3)
     fig.suptitle(
-        "Figure 4. Real conditional-dependency preservation and synthetic structural deviation",
+        "Real conditional-dependency preservation and synthetic structural deviation",
         y=0.985,
         fontsize=15.5,
         weight="semibold",
@@ -662,8 +653,7 @@ def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
         STATUS_COLORS["synthetic_only"],
     ])
     ax.imshow(ordered, cmap=cmap, vmin=-0.5, vmax=3.5, interpolation="nearest", aspect="equal")
-    if title:
-        ax.set_title(title, fontsize=11.5, weight="semibold", pad=8)
+    ax.set_title(title, fontsize=11.5, weight="semibold", pad=8)
     if subtitle:
         ax.text(0.5, 1.015, subtitle, transform=ax.transAxes, ha="center", va="bottom",
                 fontsize=8.2, color="#4B4B4B")
@@ -683,20 +673,6 @@ def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
         spine.set_linewidth(0.8)
         spine.set_color("#555555")
     return ax
-
-
-def _add_panel_label(ax, label, x=-0.08, y=1.04):
-    ax.text(
-        x,
-        y,
-        label,
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=15,
-        weight="bold",
-        color="#111111",
-    )
 
 
 def plot_supplemental_edge_status_matrices(
@@ -754,22 +730,25 @@ def plot_supplemental_edge_status_matrices(
     for ax, panel, method in zip(axes, panels, comparison_methods):
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
         status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
-        plot_edge_status_matrix(ax, status, order, "")
-        _add_panel_label(ax, panel)
+        plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
 
     metric_axes = [
         fig.add_subplot(gs[2, 0]),
         fig.add_subplot(gs[2, 1:3]),
         fig.add_subplot(gs[2, 3]),
     ]
-    plot_summary_metrics(
-        metric_axes,
-        metrics,
-        dataset_order=dataset_order,
-        method_order=method_order,
-        show_titles=False,
+    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
+    metric_axes[0].text(-0.30, 1.16, "E", transform=metric_axes[0].transAxes, fontsize=14, weight="bold")
+    metric_axes[1].text(
+        0.5,
+        1.24,
+        "E. Global structural deviation across datasets",
+        transform=metric_axes[1].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=10.8,
+        weight="semibold",
     )
-    metric_axes[0].text(-0.30, 1.08, "E", transform=metric_axes[0].transAxes, fontsize=14, weight="bold")
     metric_axes[-1].legend(loc="upper right", fontsize=7.2, frameon=True, edgecolor="#BBBBBB")
 
     legend_handles = [
@@ -790,7 +769,13 @@ def plot_supplemental_edge_status_matrices(
         columnspacing=1.45,
         borderaxespad=0.8,
     )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.900, bottom=0.070, wspace=0.14, hspace=0.30)
+    fig.suptitle(
+        f"Structural comparison matrices for {exemplar_ds}",
+        y=0.978,
+        fontsize=14.5,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.070, wspace=0.14, hspace=0.30)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -848,20 +833,18 @@ def plot_edge_status_examples(
         fig.add_subplot(gs[0, 0]),
         example_status,
         order,
-        "",
+        "A. Edge-status cells",
     )
-    _add_panel_label(fig.axes[-1], "A", x=-0.10, y=1.05)
     plot_feature_row_graph(
         fig.add_subplot(gs[0, 1]),
         real_edges,
         structures[exemplar_ds]["synthetic"][example_method]["edges"],
         real_partial,
         names,
-        "",
+        "B. Selected row as a graph",
         anchor=example_anchor,
         order=order,
     )
-    _add_panel_label(fig.axes[-1], "B", x=-0.06, y=1.05)
 
     legend_handles = [
         Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
@@ -878,7 +861,13 @@ def plot_edge_status_examples(
         fontsize=8.5,
         columnspacing=1.35,
     )
-    fig.subplots_adjust(left=0.060, right=0.985, top=0.835, bottom=0.135)
+    fig.suptitle(
+        f"Reading edge-status matrices for {exemplar_ds}",
+        y=0.985,
+        fontsize=14.5,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.060, right=0.985, top=0.760, bottom=0.135)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -1001,8 +990,7 @@ def plot_real_status_zoom(ax, status_matrix, order, title, window=12):
     rgba[..., 3] = alpha
 
     ax.imshow(rgba, interpolation="nearest", aspect="equal")
-    if title:
-        ax.set_title(title, fontsize=10.5, weight="semibold", pad=7)
+    ax.set_title(title, fontsize=10.5, weight="semibold", pad=7)
     ax.set_xticks(np.arange(len(zoom)))
     ax.set_yticks(np.arange(len(zoom)))
     ax.set_xticklabels(matrix_indices, fontsize=6.5, rotation=90)
@@ -1107,8 +1095,7 @@ def plot_feature_row_graph(
             color="#111111",
             zorder=5,
         )
-    if title:
-        ax.set_title(title, fontsize=10.5, weight="semibold", pad=7)
+    ax.set_title(title, fontsize=10.5, weight="semibold", pad=7)
     anchor_index = order_lookup[anchor] if order_lookup is not None else anchor + 1
     ax.text(
         0.5,
@@ -1174,7 +1161,7 @@ def plot_figure4_edge_status_matrices(
         3,
         4,
         height_ratios=[1.0, 1.0, 0.48],
-        hspace=0.42,
+        hspace=0.55,
         wspace=0.18,
     )
 
@@ -1192,10 +1179,9 @@ def plot_figure4_edge_status_matrices(
             ax,
             status,
             order,
-            "",
+            f"{panel}. {method} vs Real",
             subtitle=None,
         )
-        _add_panel_label(ax, panel)
 
     legend_handles = [
         Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
@@ -1221,16 +1207,27 @@ def plot_figure4_edge_status_matrices(
         fig.add_subplot(gs[2, 1:3]),
         fig.add_subplot(gs[2, 3]),
     ]
-    plot_summary_metrics(
-        metric_axes,
-        metrics,
-        dataset_order=dataset_order,
-        method_order=method_order,
-        show_titles=False,
+    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
+    metric_axes[0].text(-0.28, 1.18, "E", transform=metric_axes[0].transAxes, fontsize=15, weight="bold")
+    metric_axes[1].text(
+        0.5,
+        1.24,
+        "E. Global structural deviation across datasets",
+        transform=metric_axes[1].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=11.5,
+        weight="semibold",
     )
-    metric_axes[0].text(-0.28, 1.08, "E", transform=metric_axes[0].transAxes, fontsize=15, weight="bold")
     metric_axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.900, bottom=0.070, wspace=0.14, hspace=0.30)
+
+    fig.suptitle(
+        "Figure 4. Real conditional-dependency preservation and synthetic structural deviation",
+        y=0.978,
+        fontsize=15.5,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.070, wspace=0.14, hspace=0.30)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
