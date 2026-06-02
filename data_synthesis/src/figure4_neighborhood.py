@@ -673,7 +673,30 @@ def make_feature_index_table(feature_names, order):
     })
 
 
-def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
+def _add_axes_titles(fig, axes, titles, fontsize=10.6, pad=0.004):
+    for ax, title in zip(axes, titles):
+        box = ax.get_position()
+        fig.text(
+            (box.x0 + box.x1) / 2,
+            box.y1 + pad,
+            title,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+            weight="semibold",
+        )
+
+
+def plot_edge_status_matrix(
+    ax,
+    status_matrix,
+    order,
+    title,
+    subtitle=None,
+    triangle=False,
+    show_axes=True,
+    show_xlabel=True,
+):
     ordered = status_matrix[np.ix_(order, order)]
     cmap = ListedColormap([
         STATUS_COLORS["absent"],
@@ -681,24 +704,37 @@ def plot_edge_status_matrix(ax, status_matrix, order, title, subtitle=None):
         STATUS_COLORS["real_only"],
         STATUS_COLORS["synthetic_only"],
     ])
+    if triangle:
+        cmap = cmap.copy()
+        cmap.set_bad((1, 1, 1, 0))
+        ordered = np.ma.array(ordered, mask=np.triu(np.ones_like(ordered, dtype=bool), k=0))
+
     ax.imshow(ordered, cmap=cmap, vmin=-0.5, vmax=3.5, interpolation="nearest", aspect="equal")
-    ax.set_title(title, fontsize=11.5, weight="semibold", pad=8)
+    if title:
+        ax.set_title(title, fontsize=10.6, weight="semibold", pad=4)
     if subtitle:
-        ax.text(0.5, 1.015, subtitle, transform=ax.transAxes, ha="center", va="bottom",
+        ax.text(0.5, 1.006, subtitle, transform=ax.transAxes, ha="center", va="bottom",
                 fontsize=8.2, color="#4B4B4B")
 
     n = len(order)
     tick_step = 1 if n <= 12 else 5 if n <= 35 else 10
     ticks = np.arange(0, n, tick_step)
     labels = [str(i + 1) for i in ticks]
-    ax.set_xticks(ticks)
-    ax.set_yticks(ticks)
-    ax.set_xticklabels(labels, fontsize=7.2)
-    ax.set_yticklabels(labels, fontsize=7.2)
-    ax.set_xlabel("Feature index", fontsize=8.0)
-    ax.set_ylabel("Feature index", fontsize=8.0)
-    ax.tick_params(length=2.5, width=0.8)
+    if show_axes:
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(labels, fontsize=7.0)
+        ax.set_yticklabels(labels, fontsize=7.0)
+        ax.set_xlabel("Feature index" if show_xlabel else "", fontsize=7.8, labelpad=1)
+        ax.set_ylabel("Feature index", fontsize=7.8, labelpad=1)
+        ax.tick_params(length=2.0, width=0.8, pad=1.5)
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel("")
+        ax.set_ylabel("")
     for spine in ax.spines.values():
+        spine.set_visible(True)
         spine.set_linewidth(0.8)
         spine.set_color("#555555")
     return ax
@@ -741,12 +777,12 @@ def plot_supplemental_edge_status_matrices(
     order = get_real_structure_order(real_partial)
     feature_index = make_feature_index_table(names, order)
 
-    fig = plt.figure(figsize=(10.8, 9.8), constrained_layout=False)
+    fig = plt.figure(figsize=(8.7, 7.6), constrained_layout=False)
     gs = fig.add_gridspec(
         2,
         4,
-        hspace=0.42,
-        wspace=0.18,
+        hspace=0.24,
+        wspace=0.04,
     )
     axes = [
         fig.add_subplot(gs[0, 0:2]),
@@ -755,10 +791,20 @@ def plot_supplemental_edge_status_matrices(
         fig.add_subplot(gs[1, 2:4]),
     ]
     panels = ["A", "B", "C", "D"]
+    panel_titles = []
     for ax, panel, method in zip(axes, panels, comparison_methods):
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
         status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
-        plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
+        panel_titles.append(f"{panel}. {method} vs Real")
+        plot_edge_status_matrix(
+            ax,
+            status,
+            order,
+            None,
+            triangle=False,
+            show_axes=True,
+            show_xlabel=(panel in {"C", "D"}),
+        )
 
     legend_handles = [
         Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
@@ -769,22 +815,23 @@ def plot_supplemental_edge_status_matrices(
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.947),
+        bbox_to_anchor=(0.5, 0.920),
         ncol=4,
         frameon=False,
-        fontsize=8.6,
+        fontsize=8.0,
         handlelength=1.4,
-        handletextpad=0.55,
-        columnspacing=1.45,
-        borderaxespad=0.8,
+        handletextpad=0.45,
+        columnspacing=1.05,
+        borderaxespad=0.3,
     )
     fig.suptitle(
         f"Structural comparison matrices for {exemplar_ds}",
-        y=0.978,
-        fontsize=14.5,
+        y=0.975,
+        fontsize=13.4,
         weight="semibold",
     )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.840, bottom=0.070, wspace=0.14, hspace=0.30)
+    fig.subplots_adjust(left=0.045, right=0.990, top=0.850, bottom=0.040, wspace=0.04, hspace=0.24)
+    _add_axes_titles(fig, axes, panel_titles)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -860,13 +907,13 @@ def plot_combined_edge_status_and_glasso_tsne(
     synthetic_only["feature_name"] = [names[i] for i in synthetic_only["feature_index"]]
     palette = dict(METHOD_PRESERVATION_COLORS)
 
-    fig = plt.figure(figsize=(16.2, 24.2), constrained_layout=False)
+    fig = plt.figure(figsize=(13.4, 17.6), constrained_layout=False)
     gs = fig.add_gridspec(
         7,
         6,
-        height_ratios=[1.0, 1.0, 0.20, 1.02, 1.02, 0.18, 0.92],
-        hspace=0.34,
-        wspace=0.25,
+        height_ratios=[0.92, 0.92, 0.20, 1.0, 1.0, 0.16, 0.84],
+        hspace=0.26,
+        wspace=0.10,
     )
     matrix_axes = [
         fig.add_subplot(gs[0, 0:3]),
@@ -886,12 +933,22 @@ def plot_combined_edge_status_and_glasso_tsne(
         fig.add_subplot(gs[6, 4:6]),
     ]
 
+    matrix_titles = []
     for ax, panel, method in zip(matrix_axes, ["A", "B", "C", "D"], comparison_methods):
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
         status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
-        plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
+        matrix_titles.append(f"{panel}. {method} vs Real")
+        plot_edge_status_matrix(
+            ax,
+            status,
+            order,
+            None,
+            triangle=False,
+            show_axes=True,
+            show_xlabel=(panel in {"C", "D"}),
+        )
 
-    for ax, panel, method in zip(tsne_axes, ["E", "F", "G", "H"], comparison_methods):
+    for idx, (ax, panel, method) in enumerate(zip(tsne_axes, ["E", "F", "G", "H"], comparison_methods)):
         syn = structures[exemplar_ds]["synthetic"][method]
         _draw_glasso_tsne_panel(
             ax,
@@ -904,6 +961,7 @@ def plot_combined_edge_status_and_glasso_tsne(
             names,
             f"{panel}. {method} vs Real",
             label_top=label_top,
+            show_xlabel=idx >= 2,
         )
 
     preserve_group_summary = _draw_feature_preservation_tsne_panel(
@@ -957,51 +1015,61 @@ def plot_combined_edge_status_and_glasso_tsne(
         Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only / lost"),
         Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], lw=3, label="Synthetic-only edge"),
     ]
+    fig.suptitle(
+        f"{exemplar_ds}: real conditional-dependency preservation and t-SNE structural overlays",
+        y=0.985,
+        fontsize=14.6,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.038, right=0.992, top=0.925, bottom=0.030)
+    _add_axes_titles(fig, matrix_axes, matrix_titles)
+    status_legend_y = matrix_axes[0].get_position().y1 + 0.66 * (0.985 - matrix_axes[0].get_position().y1)
     fig.legend(
         handles=status_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.946),
+        loc="center",
+        bbox_to_anchor=(0.5, status_legend_y),
         ncol=4,
         frameon=False,
-        fontsize=8.6,
+        fontsize=8.0,
         handlelength=1.4,
-        handletextpad=0.55,
-        columnspacing=1.45,
-        borderaxespad=0.8,
+        handletextpad=0.45,
+        columnspacing=1.05,
+        borderaxespad=0.3,
+    )
+    graph_gap_top = matrix_axes[2].get_position().y0
+    graph_gap_bottom = tsne_axes[0].get_position().y1
+    graph_title_y = graph_gap_bottom + 0.68 * (graph_gap_top - graph_gap_bottom)
+    graph_legend_y = graph_gap_bottom + 0.28 * (graph_gap_top - graph_gap_bottom)
+    summary_title_y = (tsne_axes[2].get_position().y0 + summary_axes[0].get_position().y1) / 2
+    fig.text(
+        0.5,
+        graph_title_y,
+        f"Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
+        ha="center",
+        va="center",
+        fontsize=11.4,
+        weight="semibold",
     )
     fig.legend(
         handles=edge_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.558),
+        loc="center",
+        bbox_to_anchor=(0.5, graph_legend_y),
         ncol=4,
         frameon=False,
-        fontsize=8.1,
-    )
-    fig.suptitle(
-        f"{exemplar_ds}: real conditional-dependency preservation and t-SNE structural overlays",
-        y=0.986,
-        fontsize=16.0,
-        weight="semibold",
+        fontsize=7.8,
+        handlelength=2.0,
+        handletextpad=0.55,
+        columnspacing=1.25,
     )
     fig.text(
         0.5,
-        0.577,
-        f"Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
-        ha="center",
-        va="bottom",
-        fontsize=12.2,
-        weight="semibold",
-    )
-    fig.text(
-        0.5,
-        0.230,
+        summary_title_y,
         "Cluster-level feature summaries on the same t-SNE layout",
         ha="center",
-        va="bottom",
-        fontsize=12.2,
+        va="center",
+        fontsize=11.4,
         weight="semibold",
     )
-    fig.subplots_adjust(left=0.052, right=0.990, top=0.918, bottom=0.040)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -1409,12 +1477,12 @@ def plot_figure4_edge_status_matrices(
         "CVAE": "mixed preservation and synthetic-only structure",
     }
 
-    fig = plt.figure(figsize=(10.8, 9.8), constrained_layout=False)
+    fig = plt.figure(figsize=(8.7, 7.6), constrained_layout=False)
     gs = fig.add_gridspec(
         2,
         4,
-        hspace=0.42,
-        wspace=0.18,
+        hspace=0.24,
+        wspace=0.04,
     )
 
     matrix_axes = [
@@ -1424,15 +1492,20 @@ def plot_figure4_edge_status_matrices(
         fig.add_subplot(gs[1, 2:4]),
     ]
     panels = ["A", "B", "C", "D"]
+    matrix_titles = []
     for ax, panel, method in zip(matrix_axes, panels, comparison_methods):
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
         status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
+        matrix_titles.append(f"{panel}. {method} vs Real")
         plot_edge_status_matrix(
             ax,
             status,
             order,
-            f"{panel}. {method} vs Real",
+            None,
             subtitle=None,
+            triangle=False,
+            show_axes=True,
+            show_xlabel=(panel in {"C", "D"}),
         )
 
     legend_handles = [
@@ -1444,14 +1517,14 @@ def plot_figure4_edge_status_matrices(
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.947),
+        bbox_to_anchor=(0.5, 0.920),
         ncol=4,
         frameon=False,
-        fontsize=8.8,
+        fontsize=8.0,
         handlelength=1.4,
-        handletextpad=0.55,
-        columnspacing=1.45,
-        borderaxespad=0.8,
+        handletextpad=0.45,
+        columnspacing=1.05,
+        borderaxespad=0.3,
     )
 
     # fig.suptitle(
@@ -1460,7 +1533,8 @@ def plot_figure4_edge_status_matrices(
     #     fontsize=15.5,
     #     weight="semibold",
     # )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.840, bottom=0.070, wspace=0.14, hspace=0.30)
+    fig.subplots_adjust(left=0.045, right=0.990, top=0.850, bottom=0.040, wspace=0.04, hspace=0.24)
+    _add_axes_titles(fig, matrix_axes, matrix_titles)
 
     return Figure4Result(
         fig=fig,
@@ -2272,6 +2346,7 @@ def _draw_glasso_tsne_panel(
     feature_names,
     title,
     label_top=10,
+    show_xlabel=True,
 ):
     clusters = np.asarray(clusters, dtype=int)
     cluster_color = _cluster_color_map(clusters)
@@ -2335,7 +2410,7 @@ def _draw_glasso_tsne_panel(
     ax.set_title(title, fontsize=10.2, weight="semibold", pad=7)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_xlabel("t-SNE 1", fontsize=8.2)
+    ax.set_xlabel("t-SNE 1" if show_xlabel else "", fontsize=8.2, labelpad=2)
     ax.set_ylabel("t-SNE 2", fontsize=8.2)
     for spine in ax.spines.values():
         spine.set_visible(True)
