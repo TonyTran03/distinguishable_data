@@ -799,6 +799,251 @@ def plot_supplemental_edge_status_matrices(
     )
 
 
+def plot_combined_edge_status_and_glasso_tsne(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    exemplar_ds="HIV",
+    comparison_methods=None,
+    threshold=1e-7,
+    seed=123,
+    max_clusters=7,
+    label_top=0,
+    save_path=None,
+):
+    """Combine edge-status matrices with matching Graphical Lasso t-SNE panels."""
+    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
+    dataset_order = list(dataset_order or real_data.keys())
+    comparison_methods = list(comparison_methods or ["Bootstrap", "Column-wise", "CVAE", "GMM"])
+    comparison_methods = [m for m in comparison_methods if m in method_order][:4]
+    if len(comparison_methods) < 4:
+        comparison_methods.extend([m for m in method_order if m not in comparison_methods])
+    comparison_methods = comparison_methods[:4]
+
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
+    real = structures[exemplar_ds]["real"]
+    real_edges = real["edges"]
+    real_partial = real["partial"]
+    order = get_real_structure_order(real_partial)
+    feature_index = make_feature_index_table(names, order)
+
+    coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
+    cluster_labels = _profile_clusters(profiles, max_clusters=max_clusters)
+    clusters = _clusters_from_labels(cluster_labels)
+    blob_geometry = _cluster_blob_geometry(coords, clusters)
+    synthetic_edge_map = {
+        method: structures[exemplar_ds]["synthetic"][method]["edges"]
+        for method in comparison_methods
+    }
+    feature_scores = build_feature_preservation_scores(
+        real_edges,
+        synthetic_edge_map,
+        real_partial.shape[0],
+    )
+    winners, preservation_summary = summarize_feature_preservation(feature_scores, method_order=comparison_methods)
+    lost, lost_summary = summarize_feature_loss(feature_scores, method_order=comparison_methods)
+    synthetic_only, synthetic_only_summary = summarize_feature_synthetic_only(feature_scores, method_order=comparison_methods)
+    winners["feature_name"] = [names[i] for i in winners["feature_index"]]
+    lost["feature_name"] = [names[i] for i in lost["feature_index"]]
+    synthetic_only["feature_name"] = [names[i] for i in synthetic_only["feature_index"]]
+    palette = dict(METHOD_PRESERVATION_COLORS)
+
+    fig = plt.figure(figsize=(16.2, 24.2), constrained_layout=False)
+    gs = fig.add_gridspec(
+        7,
+        6,
+        height_ratios=[1.0, 1.0, 0.20, 1.02, 1.02, 0.18, 0.92],
+        hspace=0.34,
+        wspace=0.25,
+    )
+    matrix_axes = [
+        fig.add_subplot(gs[0, 0:3]),
+        fig.add_subplot(gs[0, 3:6]),
+        fig.add_subplot(gs[1, 0:3]),
+        fig.add_subplot(gs[1, 3:6]),
+    ]
+    tsne_axes = [
+        fig.add_subplot(gs[3, 0:3]),
+        fig.add_subplot(gs[3, 3:6]),
+        fig.add_subplot(gs[4, 0:3]),
+        fig.add_subplot(gs[4, 3:6]),
+    ]
+    summary_axes = [
+        fig.add_subplot(gs[6, 0:2]),
+        fig.add_subplot(gs[6, 2:4]),
+        fig.add_subplot(gs[6, 4:6]),
+    ]
+
+    for ax, panel, method in zip(matrix_axes, ["A", "B", "C", "D"], comparison_methods):
+        syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
+        status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
+        plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
+
+    for ax, panel, method in zip(tsne_axes, ["E", "F", "G", "H"], comparison_methods):
+        syn = structures[exemplar_ds]["synthetic"][method]
+        _draw_glasso_tsne_panel(
+            ax,
+            coords,
+            cluster_labels,
+            real_partial,
+            real_edges,
+            syn["partial"],
+            syn["edges"],
+            names,
+            f"{panel}. {method} vs Real",
+            label_top=label_top,
+        )
+
+    preserve_group_summary = _draw_feature_preservation_tsne_panel(
+        summary_axes[0],
+        coords,
+        real_edges,
+        real_partial,
+        names,
+        winners,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        comparison_methods,
+        palette,
+        draw_backbone=False,
+    )
+    lost_group_summary = _draw_lost_tsne_panel(
+        summary_axes[1],
+        coords,
+        lost,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        comparison_methods,
+        palette,
+    )
+    synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
+        summary_axes[2],
+        coords,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        comparison_methods,
+        palette,
+    )
+    for ax, panel, title in zip(summary_axes, ["I", "J", "K"], ["preserve", "lost", "synthetic-only"]):
+        ax.set_title(f"{panel}. {title}", fontsize=11.0, weight="semibold", pad=7)
+
+    status_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    edge_handles = [
+        Line2D([0], [0], marker="o", color="none", markerfacecolor="#777777", markeredgecolor="#1F1F1F", markersize=7, label="Feature"),
+        Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved edge"),
+        Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only / lost"),
+        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], lw=3, label="Synthetic-only edge"),
+    ]
+    fig.legend(
+        handles=status_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.946),
+        ncol=4,
+        frameon=False,
+        fontsize=8.6,
+        handlelength=1.4,
+        handletextpad=0.55,
+        columnspacing=1.45,
+        borderaxespad=0.8,
+    )
+    fig.legend(
+        handles=edge_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.558),
+        ncol=4,
+        frameon=False,
+        fontsize=8.1,
+    )
+    fig.suptitle(
+        f"{exemplar_ds}: real conditional-dependency preservation and t-SNE structural overlays",
+        y=0.986,
+        fontsize=16.0,
+        weight="semibold",
+    )
+    fig.text(
+        0.5,
+        0.577,
+        f"Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
+        ha="center",
+        va="bottom",
+        fontsize=12.2,
+        weight="semibold",
+    )
+    fig.text(
+        0.5,
+        0.230,
+        "Cluster-level feature summaries on the same t-SNE layout",
+        ha="center",
+        va="bottom",
+        fontsize=12.2,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.052, right=0.990, top=0.918, bottom=0.040)
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    feature_plot_table = winners.merge(
+        feature_scores.pivot(index="feature_index", columns="method", values="preservation_score")
+        .add_prefix("preservation_score_")
+        .reset_index(),
+        on="feature_index",
+        how="left",
+    )
+
+    result = Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        edge_recovery=feature_scores,
+        feature_index=feature_index,
+    )
+    result.preservation_summary = preservation_summary
+    result.lost_summary = lost_summary
+    result.synthetic_only_summary = synthetic_only_summary
+    result.preserve_group_summary = preserve_group_summary
+    result.lost_group_summary = lost_group_summary
+    result.synthetic_only_group_summary = synthetic_only_group_summary
+    result.neighborhood_summary = preserve_group_summary
+    result.feature_preservation_index = feature_plot_table
+    result.tsne_coordinates = pd.DataFrame({
+        "feature_index": np.arange(real_partial.shape[0], dtype=int),
+        "feature_name": names,
+        "profile_cluster": cluster_labels,
+        "preserve_method": winners["best_method"].to_numpy(dtype=object),
+        "lost_method": lost["lost_method"].to_numpy(dtype=object),
+        "synthetic_only_method": synthetic_only["synthetic_only_method"].to_numpy(dtype=object),
+        "tSNE1": coords[:, 0],
+        "tSNE2": coords[:, 1],
+    })
+    return result
+
+
 def plot_edge_status_examples(
     real_data,
     synthetic_data,

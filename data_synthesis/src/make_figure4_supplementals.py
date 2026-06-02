@@ -25,14 +25,15 @@ from models.gmm import sample_gmm
 from models.iid_columnwise import sample_columnwise
 from src.data import load_rdata_xy_names
 from src.figure4_neighborhood import (
+    plot_combined_edge_status_and_glasso_tsne,
     plot_edge_status_examples,
-    plot_supplemental_edge_status_matrices,
 )
 from util.config import Config
 
 
 SEED = 42
 DATASET_ORDER = ["HIV", "Breast Cancer", "Diabetes"]
+SUPPLEMENTAL_DATASETS = ["Breast Cancer", "Diabetes"]
 METHOD_ORDER = ["Bootstrap", "Column-wise", "GMM", "CVAE"]
 FIGURE4_ALPHAS = {"HIV": 0.504, "Breast Cancer": 0.502, "Diabetes": 0.0159}
 
@@ -151,35 +152,15 @@ def verify_generator_seeds(datasets, seed=SEED, cvae_epochs=3):
     return pd.DataFrame(rows)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Export Figure 4 supplemental edge-status matrices.")
-    parser.add_argument("--seed", type=int, default=SEED)
-    parser.add_argument("--cvae-epochs", type=int, default=200)
-    parser.add_argument("--verify-epochs", type=int, default=3)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=PKG_ROOT / "notebooks" / "revision_exports",
-    )
-    args = parser.parse_args()
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    datasets = load_datasets()
-
-    seed_checks = verify_generator_seeds(
-        datasets,
-        seed=args.seed,
-        cvae_epochs=args.verify_epochs,
-    )
-    print(seed_checks.to_string(index=False))
-    if not seed_checks["same_seed_equal"].all():
-        raise RuntimeError("At least one generator failed same-seed determinism.")
-
-    real_data, synthetic_data, feature_names = build_precision_inputs(
-        datasets,
-        seed=args.seed,
-        cvae_epochs=args.cvae_epochs,
-    )
+def export_figure4_supplemental_figures(
+    real_data,
+    synthetic_data,
+    feature_names,
+    output_dir=None,
+    seed=SEED,
+):
+    output_dir = Path(output_dir or PKG_ROOT / "notebooks" / "revision_exports")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     examples_result = plot_edge_status_examples(
         real_data=real_data,
@@ -189,14 +170,15 @@ def main():
         dataset_order=DATASET_ORDER,
         method_order=METHOD_ORDER,
         exemplar_ds="HIV",
-        save_path=args.output_dir / "supplemental_figure_s1_edge_status_examples.png",
+        save_path=output_dir / "supplemental_figure_s1_edge_status_examples.png",
     )
 
     all_metrics = [
         examples_result.metrics.assign(figure_dataset="HIV examples"),
     ]
-    for dataset in DATASET_ORDER:
-        result = plot_supplemental_edge_status_matrices(
+    results = {"HIV examples": examples_result}
+    for dataset in SUPPLEMENTAL_DATASETS:
+        result = plot_combined_edge_status_and_glasso_tsne(
             real_data=real_data,
             synthetic_data=synthetic_data,
             feature_names=feature_names,
@@ -204,14 +186,72 @@ def main():
             dataset_order=DATASET_ORDER,
             method_order=METHOD_ORDER,
             exemplar_ds=dataset,
-            save_path=args.output_dir / f"figure4_{dataset.lower().replace(' ', '_')}_edge_status_matrices.png",
+            seed=seed,
+            save_path=output_dir / f"supplemental_figure4_{dataset.lower().replace(' ', '_')}_combined_edge_tsne.png",
         )
         all_metrics.append(result.metrics.assign(figure_dataset=dataset))
+        results[dataset] = result
 
     metrics = pd.concat(all_metrics, ignore_index=True)
-    metrics.to_csv(args.output_dir / "figure4_structural_metrics.csv", index=False)
-    seed_checks.to_csv(args.output_dir / "figure4_seed_checks.csv", index=False)
-    print(f"Saved Figure 4 and supplementals to {args.output_dir}")
+    metrics.to_csv(output_dir / "figure4_structural_metrics.csv", index=False)
+    return results, metrics
+
+
+def export_figure4_supplementals(
+    output_dir=None,
+    seed=SEED,
+    cvae_epochs=200,
+    verify_epochs=3,
+    datasets=None,
+):
+    output_dir = Path(output_dir or PKG_ROOT / "notebooks" / "revision_exports")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    datasets = load_datasets() if datasets is None else datasets
+
+    seed_checks = verify_generator_seeds(
+        datasets,
+        seed=seed,
+        cvae_epochs=verify_epochs,
+    )
+    print(seed_checks.to_string(index=False))
+    if not seed_checks["same_seed_equal"].all():
+        raise RuntimeError("At least one generator failed same-seed determinism.")
+
+    real_data, synthetic_data, feature_names = build_precision_inputs(
+        datasets,
+        seed=seed,
+        cvae_epochs=cvae_epochs,
+    )
+
+    results, metrics = export_figure4_supplemental_figures(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_names,
+        output_dir=output_dir,
+        seed=seed,
+    )
+    seed_checks.to_csv(output_dir / "figure4_seed_checks.csv", index=False)
+    print(f"Saved Figure 4 supplementals to {output_dir}")
+    return results, metrics, seed_checks
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Export Figure 4 supplemental panels.")
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--cvae-epochs", type=int, default=200)
+    parser.add_argument("--verify-epochs", type=int, default=3)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=PKG_ROOT / "notebooks" / "revision_exports",
+    )
+    args = parser.parse_args()
+    export_figure4_supplementals(
+        output_dir=args.output_dir,
+        seed=args.seed,
+        cvae_epochs=args.cvae_epochs,
+        verify_epochs=args.verify_epochs,
+    )
 
 
 if __name__ == "__main__":
