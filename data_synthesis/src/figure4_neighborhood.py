@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+from matplotlib.patches import Ellipse, Patch, Polygon
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import pdist, squareform
 from sklearn import covariance
+from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 
@@ -30,10 +31,17 @@ METRIC_LABELS = {
 }
 
 METHOD_PRESERVATION_COLORS = {
-    "Bootstrap": "#2F6DB3",
-    "Column-wise": "#D65F2E",
-    "GMM": "#2A9D55",
-    "CVAE": "#7B4CC2",
+    "Bootstrap": "#6A5ACD",
+    "Column-wise": "#CC79A7",
+    "GMM": "#009E73",
+    "CVAE": "#D55E00",
+}
+
+METHOD_PRESERVATION_PASTELS = {
+    "Bootstrap": "#C7C2F4",
+    "Column-wise": "#E8B4D2",
+    "GMM": "#A8DEC9",
+    "CVAE": "#F2B49B",
 }
 
 
@@ -351,12 +359,7 @@ def plot_summary_metrics(axs, metrics, dataset_order=None, method_order=None, me
     metric_names = list(metric_names or ["frobenius_deviation", "edge_recovery", "synthetic_only_rate"])
     dataset_order = list(dataset_order or metrics["dataset"].drop_duplicates())
     method_order = list(method_order or metrics["method"].drop_duplicates())
-    palette = palette or {
-        "Bootstrap": "#8FB8DE",
-        "Column-wise": "#F0A35E",
-        "GMM": "#9AC48A",
-        "CVAE": "#C79BCB",
-    }
+    palette = palette or METHOD_PRESERVATION_PASTELS
 
     width = 0.18
     x = np.arange(len(dataset_order))
@@ -377,6 +380,39 @@ def plot_summary_metrics(axs, metrics, dataset_order=None, method_order=None, me
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     return axs
+
+
+def plot_figure4_metric_summary(
+    metrics,
+    dataset_order=None,
+    method_order=None,
+    metric_names=None,
+    title="E. Global structural deviation across datasets",
+):
+    """Plot Figure 4 metric summary as a standalone panel."""
+    dataset_order = list(dataset_order or metrics["dataset"].drop_duplicates())
+    method_order = list(method_order or metrics["method"].drop_duplicates())
+    fig, axes = plt.subplots(1, 3, figsize=(10.8, 2.8), constrained_layout=False)
+    plot_summary_metrics(
+        axes,
+        metrics,
+        dataset_order=dataset_order,
+        method_order=method_order,
+        metric_names=metric_names,
+    )
+    axes[1].text(
+        0.5,
+        1.24,
+        title,
+        transform=axes[1].transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=11.5,
+        weight="semibold",
+    )
+    axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.70, bottom=0.25, wspace=0.30)
+    return fig
 
 
 def _anchor_score(real_edges, synthetic_edges, anchor, mode):
@@ -510,8 +546,8 @@ def plot_figure4_edge_overlap_matrix(
         real_partial, real_edges, synthetic_edge_map, names, top_n=top_n_edges
     )
 
-    fig = plt.figure(figsize=(13.8, 11.4), constrained_layout=False)
-    gs = fig.add_gridspec(3, 4, height_ratios=[1.0, 1.55, 0.82], hspace=0.55, wspace=0.30)
+    fig = plt.figure(figsize=(13.8, 8.9), constrained_layout=False)
+    gs = fig.add_gridspec(2, 4, height_ratios=[1.0, 1.55], hspace=0.55, wspace=0.30)
 
     ax_a = fig.add_subplot(gs[0, 0:2])
     ax_b = fig.add_subplot(gs[0, 2:4])
@@ -553,21 +589,6 @@ def plot_figure4_edge_overlap_matrix(
 
     ax_c = fig.add_subplot(gs[1, 0:4])
     plot_edge_overlap_matrix(ax_c, edge_recovery, method_order)
-
-    metric_axes = [fig.add_subplot(gs[2, i]) for i in range(3)]
-    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[0].text(-0.23, 1.18, "D", transform=metric_axes[0].transAxes, fontsize=15, weight="bold")
-    metric_axes[1].text(
-        0.5,
-        1.24,
-        "D. Global structural deviation across datasets",
-        transform=metric_axes[1].transAxes,
-        ha="center",
-        va="bottom",
-        fontsize=11.5,
-        weight="semibold",
-    )
-    metric_axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
 
     handles = [
         Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved local edge"),
@@ -720,11 +741,10 @@ def plot_supplemental_edge_status_matrices(
     order = get_real_structure_order(real_partial)
     feature_index = make_feature_index_table(names, order)
 
-    fig = plt.figure(figsize=(10.8, 12.2), constrained_layout=False)
+    fig = plt.figure(figsize=(10.8, 9.8), constrained_layout=False)
     gs = fig.add_gridspec(
-        3,
+        2,
         4,
-        height_ratios=[1.0, 1.0, 0.48],
         hspace=0.42,
         wspace=0.18,
     )
@@ -739,24 +759,6 @@ def plot_supplemental_edge_status_matrices(
         syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
         status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
         plot_edge_status_matrix(ax, status, order, f"{panel}. {method} vs Real")
-
-    metric_axes = [
-        fig.add_subplot(gs[2, 0]),
-        fig.add_subplot(gs[2, 1:3]),
-        fig.add_subplot(gs[2, 3]),
-    ]
-    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[1].text(
-        0.5,
-        1.24,
-        "E. Global structural deviation across datasets",
-        transform=metric_axes[1].transAxes,
-        ha="center",
-        va="bottom",
-        fontsize=10.8,
-        weight="semibold",
-    )
-    metric_axes[-1].legend(loc="upper right", fontsize=7.2, frameon=True, edgecolor="#BBBBBB")
 
     legend_handles = [
         Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
@@ -782,7 +784,7 @@ def plot_supplemental_edge_status_matrices(
         fontsize=14.5,
         weight="semibold",
     )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.070, wspace=0.14, hspace=0.30)
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.840, bottom=0.070, wspace=0.14, hspace=0.30)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -1162,11 +1164,10 @@ def plot_figure4_edge_status_matrices(
         "CVAE": "mixed preservation and synthetic-only structure",
     }
 
-    fig = plt.figure(figsize=(10.8, 12.2), constrained_layout=False)
+    fig = plt.figure(figsize=(10.8, 9.8), constrained_layout=False)
     gs = fig.add_gridspec(
-        3,
+        2,
         4,
-        height_ratios=[1.0, 1.0, 0.48],
         hspace=0.42,
         wspace=0.18,
     )
@@ -1208,31 +1209,13 @@ def plot_figure4_edge_status_matrices(
         borderaxespad=0.8,
     )
 
-    metric_axes = [
-        fig.add_subplot(gs[2, 0]),
-        fig.add_subplot(gs[2, 1:3]),
-        fig.add_subplot(gs[2, 3]),
-    ]
-    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
-    metric_axes[1].text(
-        0.5,
-        1.24,
-        "E. Global structural deviation across datasets",
-        transform=metric_axes[1].transAxes,
-        ha="center",
-        va="bottom",
-        fontsize=11.5,
-        weight="semibold",
-    )
-    metric_axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
-
     # fig.suptitle(
     #     "Figure 4. Real conditional-dependency preservation and synthetic structural deviation",
     #     y=0.978,
     #     fontsize=15.5,
     #     weight="semibold",
     # )
-    fig.subplots_adjust(left=0.070, right=0.985, top=0.860, bottom=0.070, wspace=0.14, hspace=0.30)
+    fig.subplots_adjust(left=0.070, right=0.985, top=0.840, bottom=0.070, wspace=0.14, hspace=0.30)
 
     return Figure4Result(
         fig=fig,
@@ -1278,8 +1261,8 @@ def plot_figure4_neighborhood_overlap(
             fixed_nodes.update(edge)
     fixed_pos = _anchor_layout(fixed_nodes, anchor)
 
-    fig = plt.figure(figsize=(13.8, 13.0), constrained_layout=False)
-    gs = fig.add_gridspec(3, 4, height_ratios=[1.18, 1.18, 0.78], hspace=0.70, wspace=0.22)
+    fig = plt.figure(figsize=(13.8, 10.2), constrained_layout=False)
+    gs = fig.add_gridspec(2, 4, height_ratios=[1.18, 1.18], hspace=0.70, wspace=0.22)
     graph_axes = [
         fig.add_subplot(gs[0, 0:2]),
         fig.add_subplot(gs[0, 2:4]),
@@ -1303,8 +1286,6 @@ def plot_figure4_neighborhood_overlap(
             fixed_pos=fixed_pos,
         )
 
-    metric_axes = [fig.add_subplot(gs[2, i]) for i in range(3)]
-    plot_summary_metrics(metric_axes, metrics, dataset_order=dataset_order, method_order=method_order)
     handles = [
         Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved"),
         Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only"),
@@ -1313,7 +1294,6 @@ def plot_figure4_neighborhood_overlap(
         Line2D([0], [0], color="#333333", lw=2, linestyle="dashed", label="Negative"),
     ]
     fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.895), ncol=5, frameon=False, fontsize=8.6)
-    metric_axes[-1].legend(loc="upper right", fontsize=7.5, frameon=True, edgecolor="#BBBBBB")
     fig.suptitle(
         "Figure 4. Local conditional-dependency neighborhoods reveal synthetic structural distortion",
         y=0.985,
@@ -1417,6 +1397,8 @@ def summarize_feature_preservation(feature_scores, method_order=None):
             "second_best_preservation_score": second_score,
             "confidence_margin": float(best["preservation_score"] - second_score),
             "best_rewiring_score": float(best["rewiring_score"]),
+            "best_lost_edges": float(best["lost_edges"]),
+            "best_synthetic_only_edges": float(best["synthetic_only_edges"]),
             "real_degree": float(best["real_degree"]),
         })
     winners = pd.DataFrame(rows)
@@ -1435,6 +1417,349 @@ def summarize_feature_preservation(feature_scores, method_order=None):
     return winners, summary
 
 
+def summarize_feature_loss(feature_scores, method_order=None):
+    """Return the method with the largest lost-real-edge burden for each feature."""
+    method_order = list(method_order or feature_scores["method"].drop_duplicates())
+    rows = []
+    for feature_idx, group in feature_scores.groupby("feature_index", sort=True):
+        ranked = group.copy()
+        ranked["method_rank"] = ranked["method"].map({method: i for i, method in enumerate(method_order)})
+        ranked = ranked.sort_values(
+            ["lost_edges", "rewiring_score", "preservation_score", "method_rank"],
+            ascending=[False, False, True, True],
+        )
+        worst = ranked.iloc[0]
+        rows.append({
+            "feature_index": int(feature_idx),
+            "lost_method": worst["method"],
+            "lost_edges": float(worst["lost_edges"]),
+            "rewiring_score": float(worst["rewiring_score"]),
+            "preservation_score": float(worst["preservation_score"]),
+            "real_degree": float(worst["real_degree"]),
+        })
+    lost = pd.DataFrame(rows)
+    counts = lost["lost_method"].value_counts().reindex(method_order, fill_value=0)
+    means = (
+        feature_scores.groupby("method", as_index=True)
+        .agg(
+            mean_lost_edges=("lost_edges", "mean"),
+            mean_rewiring_score=("rewiring_score", "mean"),
+        )
+        .reindex(method_order)
+    )
+    summary = means.assign(n_features_most_lost=counts).reset_index().rename(columns={"index": "method"})
+    return lost, summary[["method", "n_features_most_lost", "mean_lost_edges", "mean_rewiring_score"]]
+
+
+def summarize_feature_synthetic_only(feature_scores, method_order=None):
+    """Return the method with the largest synthetic-only edge burden for each feature."""
+    method_order = list(method_order or feature_scores["method"].drop_duplicates())
+    rows = []
+    for feature_idx, group in feature_scores.groupby("feature_index", sort=True):
+        ranked = group.copy()
+        ranked["method_rank"] = ranked["method"].map({method: i for i, method in enumerate(method_order)})
+        ranked = ranked.sort_values(
+            ["synthetic_only_edges", "rewiring_score", "preservation_score", "method_rank"],
+            ascending=[False, False, True, True],
+        )
+        worst = ranked.iloc[0]
+        rows.append({
+            "feature_index": int(feature_idx),
+            "synthetic_only_method": worst["method"],
+            "synthetic_only_edges": float(worst["synthetic_only_edges"]),
+            "rewiring_score": float(worst["rewiring_score"]),
+            "preservation_score": float(worst["preservation_score"]),
+            "real_degree": float(worst["real_degree"]),
+        })
+    synthetic_only = pd.DataFrame(rows)
+    counts = synthetic_only["synthetic_only_method"].value_counts().reindex(method_order, fill_value=0)
+    means = (
+        feature_scores.groupby("method", as_index=True)
+        .agg(
+            mean_synthetic_only_edges=("synthetic_only_edges", "mean"),
+            mean_rewiring_score=("rewiring_score", "mean"),
+        )
+        .reindex(method_order)
+    )
+    summary = means.assign(n_features_most_synthetic_only=counts).reset_index().rename(columns={"index": "method"})
+    return synthetic_only, summary[["method", "n_features_most_synthetic_only", "mean_synthetic_only_edges", "mean_rewiring_score"]]
+
+
+def _ellipse_params(points, pad=1.35, min_radius=0.85):
+    points = np.asarray(points, dtype=float)
+    center = points.mean(axis=0)
+    if points.shape[0] == 1:
+        return center, min_radius * 2.0, min_radius * 2.0, 0.0
+    if points.shape[0] == 2:
+        diff = points[1] - points[0]
+        norm = np.linalg.norm(diff)
+        if norm < 1e-9:
+            return center, min_radius * 2.0, min_radius * 2.0, 0.0
+        angle = np.degrees(np.arctan2(diff[1], diff[0]))
+        return center, max(norm * pad, min_radius * 2.0), min_radius * 2.0, float(angle)
+    cov = np.cov(points, rowvar=False)
+    if not np.all(np.isfinite(cov)):
+        spread = np.ptp(points, axis=0)
+        return center, max(float(spread[0]) * pad, min_radius * 2.0), max(float(spread[1]) * pad, min_radius * 2.0), 0.0
+    values, vectors = np.linalg.eigh(cov)
+    values = np.clip(values, 0.0, None)
+    order = values.argsort()[::-1]
+    values = values[order]
+    vectors = vectors[:, order]
+    angle = np.degrees(np.arctan2(vectors[1, 0], vectors[0, 0]))
+    width, height = 4.0 * np.sqrt(values) * pad
+    return center, max(float(width), min_radius * 2.0), max(float(height), min_radius * 2.0), float(angle)
+
+
+def _local_tsne_neighborhoods(coords, distance_scale=1.85, min_groups=3, max_groups=12):
+    coords = np.asarray(coords, dtype=float)
+    if len(coords) <= 1:
+        return [np.arange(len(coords), dtype=int)] if len(coords) else []
+    distances = squareform(pdist(coords, metric="euclidean"))
+    nearest = distances.copy()
+    np.fill_diagonal(nearest, np.inf)
+    nearest_dist = np.min(nearest, axis=1)
+    threshold = float(np.nanmedian(nearest_dist[np.isfinite(nearest_dist)]) * distance_scale)
+    if not np.isfinite(threshold) or threshold <= 0:
+        threshold = float(np.nanmedian(distances[distances > 0])) if np.any(distances > 0) else 1.0
+
+    while True:
+        pending = set(range(len(coords)))
+        groups = []
+        while pending:
+            start = pending.pop()
+            component = {start}
+            queue = [start]
+            while queue:
+                current = queue.pop()
+                neighbors = [other for other in list(pending) if distances[current, other] <= threshold]
+                for other in neighbors:
+                    pending.remove(other)
+                    component.add(other)
+                    queue.append(other)
+            groups.append(np.asarray(sorted(component), dtype=int))
+        if len(groups) >= min_groups or threshold <= 0:
+            break
+        threshold *= 0.72
+
+    if len(groups) > max_groups:
+        try:
+            labels = KMeans(n_clusters=max_groups, random_state=123, n_init=30).fit_predict(coords)
+            groups = [np.where(labels == label)[0] for label in range(max_groups)]
+        except Exception:
+            groups = sorted(groups, key=len, reverse=True)[:max_groups]
+    return sorted(groups, key=lambda idx: (float(coords[idx, 0].mean()), float(coords[idx, 1].mean())))
+
+
+def _cluster_method_summary(feature_scores, clusters, method_order, mode):
+    method_order = list(method_order)
+    rank = {method: i for i, method in enumerate(method_order)}
+    rows = []
+    for cluster_id, idx in enumerate(clusters, start=1):
+        cluster_scores = feature_scores[feature_scores["feature_index"].isin(idx)].copy()
+        if mode == "preserve":
+            method_scores = (
+                cluster_scores.groupby("method", as_index=False)
+                .agg(
+                    preserved_edges=("preserved_edges", "sum"),
+                    rewiring_score=("rewiring_score", "sum"),
+                    preservation_score=("preservation_score", "mean"),
+                )
+            )
+            method_scores["method_rank"] = method_scores["method"].map(rank)
+            method_scores = method_scores.sort_values(
+                ["preserved_edges", "preservation_score", "rewiring_score", "method_rank"],
+                ascending=[False, False, True, True],
+            )
+            winner = method_scores.iloc[0]
+            score_columns = {
+                "preserved_edges": float(winner["preserved_edges"]),
+                "mean_preservation_score": float(winner["preservation_score"]),
+                "rewiring_score": float(winner["rewiring_score"]),
+            }
+        elif mode == "lost":
+            method_scores = (
+                cluster_scores.groupby("method", as_index=False)
+                .agg(
+                    lost_edges=("lost_edges", "sum"),
+                    rewiring_score=("rewiring_score", "sum"),
+                    preservation_score=("preservation_score", "mean"),
+                )
+            )
+            method_scores["method_rank"] = method_scores["method"].map(rank)
+            method_scores = method_scores.sort_values(
+                ["lost_edges", "rewiring_score", "preservation_score", "method_rank"],
+                ascending=[False, False, True, True],
+            )
+            winner = method_scores.iloc[0]
+            score_columns = {
+                "lost_edges": float(winner["lost_edges"]),
+                "rewiring_score": float(winner["rewiring_score"]),
+                "mean_preservation_score": float(winner["preservation_score"]),
+            }
+        else:
+            method_scores = (
+                cluster_scores.groupby("method", as_index=False)
+                .agg(
+                    synthetic_only_edges=("synthetic_only_edges", "sum"),
+                    rewiring_score=("rewiring_score", "sum"),
+                    preservation_score=("preservation_score", "mean"),
+                )
+            )
+            method_scores["method_rank"] = method_scores["method"].map(rank)
+            method_scores = method_scores.sort_values(
+                ["synthetic_only_edges", "rewiring_score", "preservation_score", "method_rank"],
+                ascending=[False, False, True, True],
+            )
+            winner = method_scores.iloc[0]
+            score_columns = {
+                "synthetic_only_edges": float(winner["synthetic_only_edges"]),
+                "rewiring_score": float(winner["rewiring_score"]),
+                "mean_preservation_score": float(winner["preservation_score"]),
+            }
+        rows.append({
+            "cluster_id": int(cluster_id),
+            "method": winner["method"],
+            "n_features": int(len(idx)),
+            "feature_indices": np.asarray(idx, dtype=int),
+            **score_columns,
+        })
+    return pd.DataFrame(rows)
+
+
+def _blob_polygon(points, pad=0.52, n_angles=96):
+    points = np.asarray(points, dtype=float)
+    center = points.mean(axis=0)
+    if len(points) <= 2:
+        ellipse_center, width, height, angle = _ellipse_params(points, pad=1.55, min_radius=0.72)
+        theta = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+        unit = np.column_stack([np.cos(theta) * width / 2.0, np.sin(theta) * height / 2.0])
+        rotation = np.deg2rad(angle)
+        rot = np.array([[np.cos(rotation), -np.sin(rotation)], [np.sin(rotation), np.cos(rotation)]])
+        return ellipse_center + unit @ rot.T
+
+    angles = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+    centered = points - center
+    radii = np.linalg.norm(centered, axis=1)
+    base_pad = max(float(np.median(radii)) * 0.33, pad)
+    vertices = []
+    for angle in angles:
+        direction = np.array([np.cos(angle), np.sin(angle)])
+        perpendicular = np.array([-np.sin(angle), np.cos(angle)])
+        forward = centered @ direction
+        side = np.abs(centered @ perpendicular)
+        nearby = side <= max(base_pad * 1.35, np.percentile(side, 55))
+        radius = float(np.max(forward[nearby])) if np.any(nearby) else float(np.max(forward))
+        vertices.append(center + direction * (max(radius, 0.0) + base_pad))
+    return np.asarray(vertices, dtype=float)
+
+
+def _cluster_blob_geometry(coords, clusters):
+    geometry = []
+    for cluster_id, idx in enumerate(clusters, start=1):
+        points = coords[idx]
+        geometry.append({
+            "cluster_id": int(cluster_id),
+            "feature_indices": np.asarray(idx, dtype=int),
+            "center": points.mean(axis=0),
+            "blob": _blob_polygon(points),
+        })
+    return geometry
+
+
+def _draw_neighborhood_blobs(ax, blob_geometry, summary, palette):
+    group_rows = []
+    summary_by_cluster = summary.set_index("cluster_id")
+    for geom in blob_geometry:
+        cluster_id = int(geom["cluster_id"])
+        idx = geom["feature_indices"]
+        row = summary_by_cluster.loc[cluster_id]
+        method = row["method"]
+        color = palette.get(method, "#888888")
+        center = geom["center"]
+        blob = geom["blob"]
+        ax.add_patch(Polygon(
+            blob,
+            closed=True,
+            facecolor=color,
+            edgecolor=color,
+            linewidth=1.0,
+            alpha=0.16,
+            zorder=0,
+        ))
+        ax.add_patch(Polygon(
+            blob,
+            closed=True,
+            facecolor="none",
+            edgecolor=color,
+            linewidth=1.2,
+            alpha=0.82,
+            zorder=2,
+        ))
+        ax.text(
+            center[0],
+            center[1],
+            method,
+            ha="center",
+            va="center",
+            fontsize=7.7,
+            weight="semibold",
+            color=color,
+            zorder=5,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.72, pad=1.2),
+        )
+        extra = {
+            key: value
+            for key, value in row.to_dict().items()
+            if key not in {"method", "n_features", "feature_indices"}
+        }
+        group_rows.append({
+            "cluster_id": int(cluster_id),
+            "method": method,
+            "n_features": int(len(idx)),
+            "feature_indices": idx,
+            "center_x": float(center[0]),
+            "center_y": float(center[1]),
+            **extra,
+        })
+    return pd.DataFrame(group_rows)
+
+
+def _clusters_from_labels(labels):
+    labels = np.asarray(labels, dtype=int)
+    return [np.where(labels == cluster_id)[0] for cluster_id in sorted(set(labels))]
+
+
+def _cluster_color_map(cluster_ids):
+    cluster_ids = sorted(set(np.asarray(cluster_ids, dtype=int)))
+    cluster_palette = plt.get_cmap("tab10")(np.linspace(0, 1, max(len(cluster_ids), 1)))
+    return {cluster: cluster_palette[i] for i, cluster in enumerate(cluster_ids)}
+
+
+def _cluster_dot_colors(clusters, cluster_labels):
+    cluster_color = _cluster_color_map(cluster_labels)
+    colors = np.empty(sum(len(idx) for idx in clusters), dtype=object)
+    for idx in clusters:
+        label = int(cluster_labels[idx[0]]) if len(idx) else 0
+        colors[idx] = [cluster_color[label]] * len(idx)
+    return colors
+
+
+def _draw_cluster_dots(ax, coords, clusters, cluster_labels):
+    colors = _cluster_dot_colors(clusters, cluster_labels)
+    for idx, (x, y) in enumerate(coords):
+        ax.scatter(
+            x,
+            y,
+            s=42,
+            color=colors[idx],
+            edgecolor="#252525",
+            linewidth=0.52,
+            alpha=0.94,
+            zorder=3,
+        )
+
+
 def _draw_feature_preservation_tsne_panel(
     ax,
     coords,
@@ -1442,20 +1767,17 @@ def _draw_feature_preservation_tsne_panel(
     real_partial,
     feature_names,
     winners,
+    feature_scores,
+    clusters,
+    blob_geometry,
+    cluster_labels,
     method_order,
     palette,
-    title,
-    label_top=12,
     draw_backbone=False,
 ):
     winners = winners.sort_values("feature_index")
-    margins = winners["confidence_margin"].to_numpy(dtype=float)
-    rewiring = winners["best_rewiring_score"].to_numpy(dtype=float)
-    max_margin = max(float(np.nanmax(margins)) if len(margins) else 0.0, 1e-12)
-    max_rewiring = max(float(np.nanmax(rewiring)) if len(rewiring) else 0.0, 1e-12)
-    sizes = 34.0 + 190.0 * np.sqrt(np.clip(margins / max_margin, 0.0, 1.0))
-    alphas = 0.95 - 0.38 * np.clip(rewiring / max_rewiring, 0.0, 1.0)
-    colors = [palette.get(method, "#888888") for method in winners["best_method"]]
+    cluster_summary = _cluster_method_summary(feature_scores, clusters, method_order, mode="preserve")
+    group_summary = _draw_neighborhood_blobs(ax, blob_geometry, cluster_summary, palette)
 
     if draw_backbone and real_edges:
         ranked_edges = sorted(
@@ -1473,43 +1795,46 @@ def _draw_feature_preservation_tsne_panel(
                 zorder=1,
             )
 
-    for idx, (x, y) in enumerate(coords):
-        ax.scatter(
-            x,
-            y,
-            s=sizes[idx],
-            color=colors[idx],
-            edgecolor="#1F1F1F",
-            linewidth=0.55,
-            alpha=float(alphas[idx]),
-            zorder=3,
-        )
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
 
-    margin_norm = np.clip(margins / max_margin, 0.0, 1.0)
-    rewiring_norm = np.clip(rewiring / max_rewiring, 0.0, 1.0)
-    label_score = margin_norm + rewiring_norm
-    label_nodes = np.argsort(-label_score)[:label_top]
-    for node in label_nodes:
-        ax.text(
-            coords[node, 0],
-            coords[node, 1],
-            _short_label(feature_names[node], 14),
-            fontsize=6.6,
-            ha="center",
-            va="center",
-            color="#111111",
-            zorder=4,
-        )
-
-    ax.set_title(title, fontsize=11.4, weight="semibold", pad=8)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_xlabel("t-SNE 1", fontsize=8.4)
-    ax.set_ylabel("t-SNE 2", fontsize=8.4)
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(0.9)
         spine.set_edgecolor("#333333")
+    return group_summary
+
+
+def _draw_lost_tsne_panel(ax, coords, lost, feature_scores, clusters, blob_geometry, cluster_labels, method_order, palette):
+    lost = lost.sort_values("feature_index")
+    cluster_summary = _cluster_method_summary(feature_scores, clusters, method_order, mode="lost")
+    group_summary = _draw_neighborhood_blobs(ax, blob_geometry, cluster_summary, palette)
+
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.9)
+        spine.set_edgecolor("#333333")
+    return group_summary
+
+
+def _draw_synthetic_only_tsne_panel(ax, coords, feature_scores, clusters, blob_geometry, cluster_labels, method_order, palette):
+    cluster_summary = _cluster_method_summary(feature_scores, clusters, method_order, mode="synthetic_only")
+    group_summary = _draw_neighborhood_blobs(ax, blob_geometry, cluster_summary, palette)
+
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.9)
+        spine.set_edgecolor("#333333")
+    return group_summary
 
 
 def plot_feature_preservation_tsne(
@@ -1523,7 +1848,6 @@ def plot_feature_preservation_tsne(
     threshold=1e-7,
     seed=123,
     palette=None,
-    label_top=12,
     draw_backbone=False,
 ):
     """Plot feature-level structural preservation on a real Graphical Lasso t-SNE map."""
@@ -1553,61 +1877,76 @@ def plot_feature_preservation_tsne(
         real_partial.shape[0],
     )
     winners, preservation_summary = summarize_feature_preservation(feature_scores, method_order=method_order)
+    lost, lost_summary = summarize_feature_loss(feature_scores, method_order=method_order)
+    synthetic_only, synthetic_only_summary = summarize_feature_synthetic_only(feature_scores, method_order=method_order)
     winners["feature_name"] = [names[i] for i in winners["feature_index"]]
+    lost["feature_name"] = [names[i] for i in lost["feature_index"]]
+    synthetic_only["feature_name"] = [names[i] for i in synthetic_only["feature_index"]]
 
     coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
-    fig, ax = plt.subplots(figsize=(7.4, 6.4), constrained_layout=False)
-    _draw_feature_preservation_tsne_panel(
-        ax,
+    cluster_labels = _profile_clusters(profiles, max_clusters=7)
+    clusters = _clusters_from_labels(cluster_labels)
+    blob_geometry = _cluster_blob_geometry(coords, clusters)
+    fig, axes = plt.subplots(1, 3, figsize=(18.2, 5.9), constrained_layout=False)
+    preserve_group_summary = _draw_feature_preservation_tsne_panel(
+        axes[0],
         coords,
         real_edges,
         real_partial,
         names,
         winners,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
         method_order,
         palette,
-        f"{exemplar_ds}: generator preserving each feature neighborhood",
-        label_top=label_top,
         draw_backbone=draw_backbone,
     )
-
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="none",
-            markerfacecolor=palette.get(method, "#888888"),
-            markeredgecolor="#1F1F1F",
-            markersize=7,
-            label=method,
-        )
-        for method in method_order
-    ]
-    size_handles = [
-        Line2D([0], [0], marker="o", linestyle="none", markerfacecolor="#B9B9B9",
-               markeredgecolor="#1F1F1F", markersize=4.8, label="similar methods"),
-        Line2D([0], [0], marker="o", linestyle="none", markerfacecolor="#B9B9B9",
-               markeredgecolor="#1F1F1F", markersize=9.5, label="clearer winner"),
-    ]
-    ax.legend(
-        handles=legend_handles + size_handles,
-        loc="upper left",
-        bbox_to_anchor=(1.01, 1.0),
-        frameon=False,
-        fontsize=8.2,
-        borderaxespad=0.0,
+    lost_group_summary = _draw_lost_tsne_panel(
+        axes[1],
+        coords,
+        lost,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        method_order,
+        palette,
     )
+    synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
+        axes[2],
+        coords,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        method_order,
+        palette,
+    )
+    axes[0].set_title("preserve", fontsize=11.0, weight="semibold", pad=7)
+    axes[1].set_title("lost", fontsize=11.0, weight="semibold", pad=7)
+    axes[2].set_title("synthetic-only", fontsize=11.0, weight="semibold", pad=7)
     fig.text(
-        0.08,
-        0.982,
-        f"Real Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
-        ha="left",
+        0.5,
+        0.965,
+        f"{exemplar_ds}: Graphical Lasso partial-correlation profile t-SNE clusters (perplexity={perplexity:.0f})",
+        ha="center",
         va="top",
-        fontsize=9.2,
+        fontsize=12.2,
+        weight="semibold",
+    )
+    axes[0].text(
+        0.012,
+        0.018,
+        f"perplexity={perplexity:.0f}",
+        transform=axes[0].transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.0,
         color="#333333",
     )
-    fig.subplots_adjust(left=0.08, right=0.78, top=0.92, bottom=0.09)
+    fig.subplots_adjust(left=0.045, right=0.990, top=0.875, bottom=0.065, wspace=0.085)
 
     feature_plot_table = winners.merge(
         feature_scores.pivot(index="feature_index", columns="method", values="preservation_score")
@@ -1619,12 +1958,12 @@ def plot_feature_preservation_tsne(
 
     caption = (
         "Features are positioned using a t-SNE embedding of real Graphical Lasso "
-        "partial-correlation profiles. Node color indicates the synthetic method with "
-        "the highest feature-level structural preservation score, and node size "
-        "indicates confidence in the selected method. This visualization summarizes "
-        "which regions of the real feature-dependency landscape are best preserved by "
-        "each generator; exact edge-level preservation is shown in the Graphical Lasso "
-        "edge-status matrices."
+        "partial-correlation profiles. Blobs use the same Graphical Lasso profile "
+        "clusters and node colors as the t-SNE layout panels, with identical boundaries "
+        "reused in preserve, lost, and synthetic-only. Blob color summarizes the "
+        "winning synthetic method: best cluster preservation on the left, dominant "
+        "lost/rewired signal in the middle, and dominant synthetic-only signal on "
+        "the right."
     )
 
     result = Figure4Result(
@@ -1637,10 +1976,20 @@ def plot_feature_preservation_tsne(
         feature_index=feature_plot_table,
     )
     result.preservation_summary = preservation_summary
+    result.lost_summary = lost_summary
+    result.synthetic_only_summary = synthetic_only_summary
+    result.preserve_group_summary = preserve_group_summary
+    result.lost_group_summary = lost_group_summary
+    result.synthetic_only_group_summary = synthetic_only_group_summary
+    result.neighborhood_summary = preserve_group_summary
     result.caption = caption
     result.tsne_coordinates = pd.DataFrame({
         "feature_index": np.arange(real_partial.shape[0], dtype=int),
         "feature_name": names,
+        "profile_cluster": cluster_labels,
+        "preserve_method": winners["best_method"].to_numpy(dtype=object),
+        "lost_method": lost["lost_method"].to_numpy(dtype=object),
+        "synthetic_only_method": synthetic_only["synthetic_only_method"].to_numpy(dtype=object),
         "tSNE1": coords[:, 0],
         "tSNE2": coords[:, 1],
     })
@@ -1651,12 +2000,20 @@ def _profile_clusters(profiles, max_clusters=7):
     n_features = profiles.shape[0]
     if n_features <= 2:
         return np.ones(n_features, dtype=int)
-    n_clusters = int(min(max_clusters, max(2, round(np.sqrt(n_features)))))
+    n_clusters = int(min(max_clusters, max(3, round(np.sqrt(n_features) * 1.35))))
+    n_clusters = min(n_clusters, max(2, n_features // 2))
+    profiles = np.asarray(profiles, dtype=float)
+    if not np.all(np.isfinite(profiles)) or np.allclose(profiles, profiles[0]):
+        return np.ones(n_features, dtype=int)
     distances = pdist(profiles, metric="euclidean")
     if not np.all(np.isfinite(distances)) or np.allclose(distances, 0):
         return np.ones(n_features, dtype=int)
-    linkage = hierarchy.linkage(distances, method="average")
-    return hierarchy.fcluster(linkage, t=n_clusters, criterion="maxclust")
+    try:
+        linkage = hierarchy.linkage(distances, method="average")
+        return hierarchy.fcluster(linkage, t=n_clusters, criterion="maxclust")
+    except Exception:
+        labels = KMeans(n_clusters=n_clusters, random_state=123, n_init=30).fit_predict(profiles)
+        return labels.astype(int) + 1
 
 
 def _draw_glasso_tsne_panel(
@@ -1672,9 +2029,7 @@ def _draw_glasso_tsne_panel(
     label_top=10,
 ):
     clusters = np.asarray(clusters, dtype=int)
-    cluster_ids = sorted(set(clusters))
-    cluster_palette = plt.get_cmap("tab10")(np.linspace(0, 1, max(len(cluster_ids), 1)))
-    cluster_color = {cluster: cluster_palette[i] for i, cluster in enumerate(cluster_ids)}
+    cluster_color = _cluster_color_map(clusters)
 
     categories = {
         "preserved": real_edges & synthetic_edges,
@@ -1754,6 +2109,7 @@ def plot_glasso_tsne_layout(
     threshold=1e-7,
     seed=123,
     max_clusters=7,
+    label_top=0,
 ):
     """Plot t-SNE of Graphical Lasso feature-dependency profiles with edge overlays."""
     method_order = list(method_order or synthetic_data[exemplar_ds].keys())
@@ -1790,6 +2146,7 @@ def plot_glasso_tsne_layout(
             syn["edges"],
             names,
             f"{panel}. {method} vs Real",
+            label_top=label_top,
         )
 
     handles = [
@@ -1823,3 +2180,206 @@ def plot_glasso_tsne_layout(
         anchor_feature="",
         structures=structures,
     )
+
+
+def plot_glasso_tsne_layout_with_neighborhood_summary(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    exemplar_ds="HIV",
+    threshold=1e-7,
+    seed=123,
+    max_clusters=7,
+    label_top=0,
+    palette=None,
+    draw_backbone=False,
+):
+    """Plot edge overlays and cluster-level summaries in one dataset-specific figure."""
+    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
+    dataset_order = list(dataset_order or real_data.keys())
+    palette = dict(METHOD_PRESERVATION_COLORS if palette is None else palette)
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
+    real = structures[exemplar_ds]["real"]
+    real_partial = real["partial"]
+    real_edges = real["edges"]
+
+    coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
+    cluster_labels = _profile_clusters(profiles, max_clusters=max_clusters)
+    clusters = _clusters_from_labels(cluster_labels)
+    blob_geometry = _cluster_blob_geometry(coords, clusters)
+
+    synthetic_edge_map = {
+        method: structures[exemplar_ds]["synthetic"][method]["edges"]
+        for method in method_order
+    }
+    feature_scores = build_feature_preservation_scores(
+        real_edges,
+        synthetic_edge_map,
+        real_partial.shape[0],
+    )
+    winners, preservation_summary = summarize_feature_preservation(feature_scores, method_order=method_order)
+    lost, lost_summary = summarize_feature_loss(feature_scores, method_order=method_order)
+    synthetic_only, synthetic_only_summary = summarize_feature_synthetic_only(feature_scores, method_order=method_order)
+    winners["feature_name"] = [names[i] for i in winners["feature_index"]]
+    lost["feature_name"] = [names[i] for i in lost["feature_index"]]
+    synthetic_only["feature_name"] = [names[i] for i in synthetic_only["feature_index"]]
+
+    fig = plt.figure(figsize=(16.2, 15.2), constrained_layout=False)
+    gs = fig.add_gridspec(3, 6, height_ratios=[1.0, 1.0, 0.92], hspace=0.30, wspace=0.25)
+    edge_axes = [
+        fig.add_subplot(gs[0, 0:3]),
+        fig.add_subplot(gs[0, 3:6]),
+        fig.add_subplot(gs[1, 0:3]),
+        fig.add_subplot(gs[1, 3:6]),
+    ]
+    summary_axes = [
+        fig.add_subplot(gs[2, 0:2]),
+        fig.add_subplot(gs[2, 2:4]),
+        fig.add_subplot(gs[2, 4:6]),
+    ]
+
+    for ax, method, panel in zip(edge_axes, method_order, ["D", "E", "F", "G"]):
+        syn = structures[exemplar_ds]["synthetic"][method]
+        _draw_glasso_tsne_panel(
+            ax,
+            coords,
+            cluster_labels,
+            real_partial,
+            real_edges,
+            syn["partial"],
+            syn["edges"],
+            names,
+            f"{panel}. {method} vs Real",
+            label_top=label_top,
+        )
+
+    preserve_group_summary = _draw_feature_preservation_tsne_panel(
+        summary_axes[0],
+        coords,
+        real_edges,
+        real_partial,
+        names,
+        winners,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        method_order,
+        palette,
+        draw_backbone=draw_backbone,
+    )
+    lost_group_summary = _draw_lost_tsne_panel(
+        summary_axes[1],
+        coords,
+        lost,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        method_order,
+        palette,
+    )
+    synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
+        summary_axes[2],
+        coords,
+        feature_scores,
+        clusters,
+        blob_geometry,
+        cluster_labels,
+        method_order,
+        palette,
+    )
+    for ax, title in zip(summary_axes, ["preserve", "lost", "synthetic-only"]):
+        ax.set_title(title, fontsize=11.0, weight="semibold", pad=7)
+
+    handles = [
+        Line2D([0], [0], marker="o", color="none", markerfacecolor="#777777", markeredgecolor="#1F1F1F", markersize=7, label="Feature cluster"),
+        Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved edge"),
+        Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only / lost"),
+        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], lw=3, label="Synthetic-only edge"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.948),
+        ncol=4,
+        frameon=False,
+        fontsize=8.1,
+    )
+    fig.text(
+        0.5,
+        0.982,
+        f"{exemplar_ds}: Graphical Lasso partial-correlation profile t-SNE and cluster summaries (perplexity={perplexity:.0f})",
+        ha="center",
+        va="top",
+        fontsize=12.6,
+        weight="semibold",
+    )
+    summary_axes[0].text(
+        0.012,
+        0.018,
+        f"perplexity={perplexity:.0f}",
+        transform=summary_axes[0].transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.0,
+        color="#333333",
+    )
+    fig.subplots_adjust(left=0.045, right=0.990, top=0.910, bottom=0.050)
+
+    feature_plot_table = winners.merge(
+        feature_scores.pivot(index="feature_index", columns="method", values="preservation_score")
+        .add_prefix("preservation_score_")
+        .reset_index(),
+        on="feature_index",
+        how="left",
+    )
+
+    caption = (
+        "Each dataset figure uses one t-SNE embedding of the real Graphical Lasso "
+        "partial-correlation profiles. The upper panels show method-specific edge "
+        "status on that layout. The lower panels reuse the exact same coordinates, "
+        "hierarchical profile clusters, and blob boundaries; only each blob's "
+        "method summary color changes for preserve, lost, and synthetic-only."
+    )
+
+    result = Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        edge_recovery=feature_scores,
+        feature_index=feature_plot_table,
+    )
+    result.preservation_summary = preservation_summary
+    result.lost_summary = lost_summary
+    result.synthetic_only_summary = synthetic_only_summary
+    result.preserve_group_summary = preserve_group_summary
+    result.lost_group_summary = lost_group_summary
+    result.synthetic_only_group_summary = synthetic_only_group_summary
+    result.neighborhood_summary = preserve_group_summary
+    result.caption = caption
+    result.tsne_coordinates = pd.DataFrame({
+        "feature_index": np.arange(real_partial.shape[0], dtype=int),
+        "feature_name": names,
+        "profile_cluster": cluster_labels,
+        "preserve_method": winners["best_method"].to_numpy(dtype=object),
+        "lost_method": lost["lost_method"].to_numpy(dtype=object),
+        "synthetic_only_method": synthetic_only["synthetic_only_method"].to_numpy(dtype=object),
+        "tSNE1": coords[:, 0],
+        "tSNE2": coords[:, 1],
+    })
+    return result
