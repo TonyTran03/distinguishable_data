@@ -26,7 +26,6 @@ from models.iid_columnwise import sample_columnwise
 from src.data import load_rdata_xy_names
 from src.figure4_neighborhood import (
     plot_edge_status_examples,
-    plot_figure4_edge_status_matrices,
     plot_supplemental_edge_status_matrices,
 )
 from util.config import Config
@@ -182,17 +181,6 @@ def main():
         cvae_epochs=args.cvae_epochs,
     )
 
-    main_result = plot_figure4_edge_status_matrices(
-        real_data=real_data,
-        synthetic_data=synthetic_data,
-        feature_names=feature_names,
-        alphas=FIGURE4_ALPHAS,
-        dataset_order=DATASET_ORDER,
-        method_order=METHOD_ORDER,
-        exemplar_ds="HIV",
-        save_path=args.output_dir / "figure_4_edge_status_matrices.png",
-    )
-
     examples_result = plot_edge_status_examples(
         real_data=real_data,
         synthetic_data=synthetic_data,
@@ -205,10 +193,9 @@ def main():
     )
 
     all_metrics = [
-        main_result.metrics.assign(figure_dataset="HIV"),
         examples_result.metrics.assign(figure_dataset="HIV examples"),
     ]
-    for dataset in ["Breast Cancer", "Diabetes"]:
+    for dataset in DATASET_ORDER:
         result = plot_supplemental_edge_status_matrices(
             real_data=real_data,
             synthetic_data=synthetic_data,
@@ -217,7 +204,7 @@ def main():
             dataset_order=DATASET_ORDER,
             method_order=METHOD_ORDER,
             exemplar_ds=dataset,
-            save_path=args.output_dir / f"supplemental_figure4_{dataset.lower().replace(' ', '_')}_edge_status_matrices.png",
+            save_path=args.output_dir / f"figure4_{dataset.lower().replace(' ', '_')}_edge_status_matrices.png",
         )
         all_metrics.append(result.metrics.assign(figure_dataset=dataset))
 

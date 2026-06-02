@@ -11,8 +11,9 @@ from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from scipy.cluster import hierarchy
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
 from sklearn import covariance
+from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 
 
@@ -26,6 +27,13 @@ METRIC_LABELS = {
     "frobenius_deviation": r"Frobenius deviation, $||\Theta_R-\Theta_S||_F$",
     "edge_recovery": r"Edge recovery, $|E_R \cap E_S| / |E_R|$",
     "synthetic_only_rate": r"Synthetic-only edge rate, $|E_S \setminus E_R| / |E_S|$",
+}
+
+METHOD_PRESERVATION_COLORS = {
+    "Bootstrap": "#2F6DB3",
+    "Column-wise": "#D65F2E",
+    "GMM": "#2A9D55",
+    "CVAE": "#7B4CC2",
 }
 
 
@@ -1326,3 +1334,492 @@ def plot_figure4_neighborhood_overlap(
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
     return Figure4Result(fig=fig, metrics=metrics, anchor=anchor, anchor_feature=names[anchor], structures=structures)
+
+
+def _fit_profile_tsne(partial_corr, seed=123, perplexity=None):
+    """Embed features from their Graphical Lasso partial-correlation profiles."""
+    profiles = np.asarray(partial_corr, dtype=float).copy()
+    np.fill_diagonal(profiles, 0.0)
+    profiles = StandardScaler().fit_transform(profiles)
+    n_features = profiles.shape[0]
+    if perplexity is None:
+        perplexity = min(30, max(2, (n_features - 1) // 3))
+    perplexity = float(min(perplexity, max(1, n_features - 1)))
+    kwargs = dict(
+        n_components=2,
+        perplexity=perplexity,
+        init="pca",
+        learning_rate="auto",
+        random_state=seed,
+        metric="euclidean",
+    )
+    try:
+        coords = TSNE(max_iter=1500, **kwargs).fit_transform(profiles)
+    except TypeError:
+        coords = TSNE(n_iter=1500, **kwargs).fit_transform(profiles)
+    return coords, profiles, perplexity
+
+
+def build_feature_preservation_scores(real_edges, synthetic_edge_map, n_features, epsilon=1e-12):
+    """Score per-feature preservation of incident Graphical Lasso edges by method."""
+    rows = []
+    real_incident = [set() for _ in range(n_features)]
+    for edge in real_edges:
+        i, j = edge
+        real_incident[i].add(edge)
+        real_incident[j].add(edge)
+
+    for method, synthetic_edges in synthetic_edge_map.items():
+        syn_incident = [set() for _ in range(n_features)]
+        for edge in synthetic_edges:
+            i, j = edge
+            syn_incident[i].add(edge)
+            syn_incident[j].add(edge)
+
+        for feature_idx in range(n_features):
+            real_here = real_incident[feature_idx]
+            syn_here = syn_incident[feature_idx]
+            preserved = len(real_here & syn_here)
+            lost = len(real_here - syn_here)
+            new = len(syn_here - real_here)
+            denominator = preserved + lost + new + epsilon
+            rows.append({
+                "feature_index": feature_idx,
+                "method": method,
+                "preserved_edges": preserved,
+                "lost_edges": lost,
+                "synthetic_only_edges": new,
+                "rewiring_score": lost + new,
+                "preservation_score": preserved / denominator,
+                "real_degree": len(real_here),
+                "synthetic_degree": len(syn_here),
+            })
+    return pd.DataFrame(rows)
+
+
+def summarize_feature_preservation(feature_scores, method_order=None):
+    """Return winner annotations per feature and a compact method-level summary."""
+    method_order = list(method_order or feature_scores["method"].drop_duplicates())
+    rows = []
+    for feature_idx, group in feature_scores.groupby("feature_index", sort=True):
+        ranked = group.copy()
+        ranked["method_rank"] = ranked["method"].map({method: i for i, method in enumerate(method_order)})
+        ranked = ranked.sort_values(
+            ["preservation_score", "rewiring_score", "method_rank"],
+            ascending=[False, True, True],
+        )
+        best = ranked.iloc[0]
+        second_score = float(ranked.iloc[1]["preservation_score"]) if len(ranked) > 1 else float(best["preservation_score"])
+        rows.append({
+            "feature_index": int(feature_idx),
+            "best_method": best["method"],
+            "best_preservation_score": float(best["preservation_score"]),
+            "second_best_preservation_score": second_score,
+            "confidence_margin": float(best["preservation_score"] - second_score),
+            "best_rewiring_score": float(best["rewiring_score"]),
+            "real_degree": float(best["real_degree"]),
+        })
+    winners = pd.DataFrame(rows)
+
+    counts = winners["best_method"].value_counts().reindex(method_order, fill_value=0)
+    means = (
+        feature_scores.groupby("method", as_index=True)
+        .agg(
+            mean_preservation_score=("preservation_score", "mean"),
+            mean_rewiring_score=("rewiring_score", "mean"),
+        )
+        .reindex(method_order)
+    )
+    summary = means.assign(n_features_best=counts).reset_index().rename(columns={"index": "method"})
+    summary = summary[["method", "n_features_best", "mean_preservation_score", "mean_rewiring_score"]]
+    return winners, summary
+
+
+def _draw_feature_preservation_tsne_panel(
+    ax,
+    coords,
+    real_edges,
+    real_partial,
+    feature_names,
+    winners,
+    method_order,
+    palette,
+    title,
+    label_top=12,
+    draw_backbone=False,
+):
+    winners = winners.sort_values("feature_index")
+    margins = winners["confidence_margin"].to_numpy(dtype=float)
+    rewiring = winners["best_rewiring_score"].to_numpy(dtype=float)
+    max_margin = max(float(np.nanmax(margins)) if len(margins) else 0.0, 1e-12)
+    max_rewiring = max(float(np.nanmax(rewiring)) if len(rewiring) else 0.0, 1e-12)
+    sizes = 34.0 + 190.0 * np.sqrt(np.clip(margins / max_margin, 0.0, 1.0))
+    alphas = 0.95 - 0.38 * np.clip(rewiring / max_rewiring, 0.0, 1.0)
+    colors = [palette.get(method, "#888888") for method in winners["best_method"]]
+
+    if draw_backbone and real_edges:
+        ranked_edges = sorted(
+            real_edges,
+            key=lambda edge: abs(float(real_partial[edge[0], edge[1]])),
+            reverse=True,
+        )
+        for i, j in ranked_edges[: max(12, min(80, len(ranked_edges) // 5))]:
+            ax.plot(
+                [coords[i, 0], coords[j, 0]],
+                [coords[i, 1], coords[j, 1]],
+                color="#1B1B1B",
+                linewidth=0.35,
+                alpha=0.10,
+                zorder=1,
+            )
+
+    for idx, (x, y) in enumerate(coords):
+        ax.scatter(
+            x,
+            y,
+            s=sizes[idx],
+            color=colors[idx],
+            edgecolor="#1F1F1F",
+            linewidth=0.55,
+            alpha=float(alphas[idx]),
+            zorder=3,
+        )
+
+    margin_norm = np.clip(margins / max_margin, 0.0, 1.0)
+    rewiring_norm = np.clip(rewiring / max_rewiring, 0.0, 1.0)
+    label_score = margin_norm + rewiring_norm
+    label_nodes = np.argsort(-label_score)[:label_top]
+    for node in label_nodes:
+        ax.text(
+            coords[node, 0],
+            coords[node, 1],
+            _short_label(feature_names[node], 14),
+            fontsize=6.6,
+            ha="center",
+            va="center",
+            color="#111111",
+            zorder=4,
+        )
+
+    ax.set_title(title, fontsize=11.4, weight="semibold", pad=8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("t-SNE 1", fontsize=8.4)
+    ax.set_ylabel("t-SNE 2", fontsize=8.4)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.9)
+        spine.set_edgecolor("#333333")
+
+
+def plot_feature_preservation_tsne(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    exemplar_ds="HIV",
+    threshold=1e-7,
+    seed=123,
+    palette=None,
+    label_top=12,
+    draw_backbone=False,
+):
+    """Plot feature-level structural preservation on a real Graphical Lasso t-SNE map."""
+    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
+    dataset_order = list(dataset_order or real_data.keys())
+    palette = dict(METHOD_PRESERVATION_COLORS if palette is None else palette)
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
+    real = structures[exemplar_ds]["real"]
+    real_partial = real["partial"]
+    real_edges = real["edges"]
+    synthetic_edge_map = {
+        method: structures[exemplar_ds]["synthetic"][method]["edges"]
+        for method in method_order
+    }
+    feature_scores = build_feature_preservation_scores(
+        real_edges,
+        synthetic_edge_map,
+        real_partial.shape[0],
+    )
+    winners, preservation_summary = summarize_feature_preservation(feature_scores, method_order=method_order)
+    winners["feature_name"] = [names[i] for i in winners["feature_index"]]
+
+    coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
+    fig, ax = plt.subplots(figsize=(7.4, 6.4), constrained_layout=False)
+    _draw_feature_preservation_tsne_panel(
+        ax,
+        coords,
+        real_edges,
+        real_partial,
+        names,
+        winners,
+        method_order,
+        palette,
+        f"{exemplar_ds}: generator preserving each feature neighborhood",
+        label_top=label_top,
+        draw_backbone=draw_backbone,
+    )
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="none",
+            markerfacecolor=palette.get(method, "#888888"),
+            markeredgecolor="#1F1F1F",
+            markersize=7,
+            label=method,
+        )
+        for method in method_order
+    ]
+    size_handles = [
+        Line2D([0], [0], marker="o", linestyle="none", markerfacecolor="#B9B9B9",
+               markeredgecolor="#1F1F1F", markersize=4.8, label="similar methods"),
+        Line2D([0], [0], marker="o", linestyle="none", markerfacecolor="#B9B9B9",
+               markeredgecolor="#1F1F1F", markersize=9.5, label="clearer winner"),
+    ]
+    ax.legend(
+        handles=legend_handles + size_handles,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        frameon=False,
+        fontsize=8.2,
+        borderaxespad=0.0,
+    )
+    fig.text(
+        0.08,
+        0.982,
+        f"Real Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
+        ha="left",
+        va="top",
+        fontsize=9.2,
+        color="#333333",
+    )
+    fig.subplots_adjust(left=0.08, right=0.78, top=0.92, bottom=0.09)
+
+    feature_plot_table = winners.merge(
+        feature_scores.pivot(index="feature_index", columns="method", values="preservation_score")
+        .add_prefix("preservation_score_")
+        .reset_index(),
+        on="feature_index",
+        how="left",
+    )
+
+    caption = (
+        "Features are positioned using a t-SNE embedding of real Graphical Lasso "
+        "partial-correlation profiles. Node color indicates the synthetic method with "
+        "the highest feature-level structural preservation score, and node size "
+        "indicates confidence in the selected method. This visualization summarizes "
+        "which regions of the real feature-dependency landscape are best preserved by "
+        "each generator; exact edge-level preservation is shown in the Graphical Lasso "
+        "edge-status matrices."
+    )
+
+    result = Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        edge_recovery=feature_scores,
+        feature_index=feature_plot_table,
+    )
+    result.preservation_summary = preservation_summary
+    result.caption = caption
+    result.tsne_coordinates = pd.DataFrame({
+        "feature_index": np.arange(real_partial.shape[0], dtype=int),
+        "feature_name": names,
+        "tSNE1": coords[:, 0],
+        "tSNE2": coords[:, 1],
+    })
+    return result
+
+
+def _profile_clusters(profiles, max_clusters=7):
+    n_features = profiles.shape[0]
+    if n_features <= 2:
+        return np.ones(n_features, dtype=int)
+    n_clusters = int(min(max_clusters, max(2, round(np.sqrt(n_features)))))
+    distances = pdist(profiles, metric="euclidean")
+    if not np.all(np.isfinite(distances)) or np.allclose(distances, 0):
+        return np.ones(n_features, dtype=int)
+    linkage = hierarchy.linkage(distances, method="average")
+    return hierarchy.fcluster(linkage, t=n_clusters, criterion="maxclust")
+
+
+def _draw_glasso_tsne_panel(
+    ax,
+    coords,
+    clusters,
+    real_partial,
+    real_edges,
+    synthetic_partial,
+    synthetic_edges,
+    feature_names,
+    title,
+    label_top=10,
+):
+    clusters = np.asarray(clusters, dtype=int)
+    cluster_ids = sorted(set(clusters))
+    cluster_palette = plt.get_cmap("tab10")(np.linspace(0, 1, max(len(cluster_ids), 1)))
+    cluster_color = {cluster: cluster_palette[i] for i, cluster in enumerate(cluster_ids)}
+
+    categories = {
+        "preserved": real_edges & synthetic_edges,
+        "real_only": real_edges - synthetic_edges,
+        "synthetic_only": synthetic_edges - real_edges,
+    }
+    edge_partials = {
+        "preserved": real_partial,
+        "real_only": real_partial,
+        "synthetic_only": synthetic_partial,
+    }
+
+    for category in ("preserved", "real_only", "synthetic_only"):
+        partial = edge_partials[category]
+        for edge in categories[category]:
+            i, j = edge
+            weight = abs(float(partial[i, j]))
+            width = 0.35 + 2.2 * min(weight, 0.8)
+            alpha = 0.26 if category == "preserved" else 0.18
+            ax.plot(
+                [coords[i, 0], coords[j, 0]],
+                [coords[i, 1], coords[j, 1]],
+                color=EDGE_COLORS[category],
+                linewidth=width,
+                alpha=alpha,
+                zorder=1,
+            )
+
+    degree = np.zeros(coords.shape[0], dtype=float)
+    for i, j in real_edges:
+        degree[i] += 1
+        degree[j] += 1
+    sizes = 30 + 18 * np.sqrt(degree + 1)
+    ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        s=sizes,
+        c=[cluster_color[int(cluster)] for cluster in clusters],
+        edgecolor="#1F1F1F",
+        linewidth=0.55,
+        alpha=0.94,
+        zorder=3,
+    )
+
+    label_nodes = np.argsort(-(degree + np.sum(np.abs(real_partial), axis=1)))[:label_top]
+    for node in label_nodes:
+        ax.text(
+            coords[node, 0],
+            coords[node, 1],
+            _short_label(feature_names[node], 14),
+            fontsize=6.5,
+            ha="center",
+            va="center",
+            color="#111111",
+            zorder=4,
+        )
+
+    ax.set_title(title, fontsize=10.2, weight="semibold", pad=7)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("t-SNE 1", fontsize=8.2)
+    ax.set_ylabel("t-SNE 2", fontsize=8.2)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.0)
+        spine.set_edgecolor("#333333")
+
+
+def plot_glasso_tsne_layout(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    exemplar_ds="HIV",
+    threshold=1e-7,
+    seed=123,
+    max_clusters=7,
+):
+    """Plot t-SNE of Graphical Lasso feature-dependency profiles with edge overlays."""
+    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
+    dataset_order = list(dataset_order or real_data.keys())
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
+    real = structures[exemplar_ds]["real"]
+    real_partial = real["partial"]
+    real_edges = real["edges"]
+    coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
+    clusters = _profile_clusters(profiles, max_clusters=max_clusters)
+
+    fig = plt.figure(figsize=(11.4, 11.4), constrained_layout=False)
+    gs = fig.add_gridspec(2, 2, hspace=0.22, wspace=0.16)
+    axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(2)]
+
+    for ax, method, panel in zip(axes, method_order, ["A", "B", "C", "D"]):
+        syn = structures[exemplar_ds]["synthetic"][method]
+        _draw_glasso_tsne_panel(
+            ax,
+            coords,
+            clusters,
+            real_partial,
+            real_edges,
+            syn["partial"],
+            syn["edges"],
+            names,
+            f"{panel}. {method} vs Real",
+        )
+
+    handles = [
+        Line2D([0], [0], marker="o", color="none", markerfacecolor="#777777", markeredgecolor="#1F1F1F", markersize=7, label="Feature"),
+        Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved edge"),
+        Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only / lost"),
+        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], lw=3, label="Synthetic-only edge"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.950),
+        ncol=4,
+        frameon=False,
+        fontsize=8.1,
+    )
+    fig.text(
+        0.5,
+        0.965,
+        f"{exemplar_ds}: t-SNE layout of Graphical Lasso partial-correlation profiles (perplexity={perplexity:.0f})",
+        ha="center",
+        va="top",
+        fontsize=12.2,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.055, right=0.985, top=0.900, bottom=0.050)
+    return Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+    )
