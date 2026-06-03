@@ -254,6 +254,30 @@ def export_figure4_supplemental_figures(
         results[f"{dataset} t-SNE analysis"] = result
         plt.close(result.fig)
 
+        tsne_cosine_path = tsne_output_dir / f"supplemental_tsne_analysis_{dataset.lower().replace(' ', '_')}_cosine_clusters.png"
+        cosine_result = plot_figure4_tsne_edge_supplement(
+            real_data=real_data,
+            synthetic_data=synthetic_data,
+            feature_names=feature_names,
+            alphas=FIGURE4_ALPHAS,
+            dataset_order=DATASET_ORDER,
+            method_order=METHOD_ORDER,
+            exemplar_ds=dataset,
+            seed=seed,
+            cluster_metric="cosine",
+            cluster_linkage="average",
+            save_path=tsne_cosine_path,
+        )
+        exported_figures.append({
+            "section": "Supplement: t-SNE analysis",
+            "dataset": dataset,
+            "figure": "Graphical Lasso t-SNE edge overlays E-H with cosine cluster distance",
+            "path": str(tsne_cosine_path),
+        })
+        all_metrics.append(cosine_result.metrics.assign(figure_dataset=f"{dataset} t-SNE analysis cosine clusters"))
+        results[f"{dataset} t-SNE analysis cosine clusters"] = cosine_result
+        plt.close(cosine_result.fig)
+
     metrics = pd.concat(all_metrics, ignore_index=True)
     metrics.to_csv(output_dir / "figure4_structural_metrics.csv", index=False)
     pd.DataFrame(exported_figures).to_csv(output_dir / "figure4_exported_figures.csv", index=False)

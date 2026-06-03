@@ -1309,7 +1309,13 @@ def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None)
 
 
 
-def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, save_path=None):
+def plot_figure4_tsne_analysis_supplement(
+    dataset_name="HIV",
+    threshold=1e-7,
+    cluster_metric="euclidean",
+    cluster_linkage="average",
+    save_path=None,
+):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
@@ -1323,6 +1329,8 @@ def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, sa
         exemplar_ds=dataset_name,
         threshold=threshold,
         seed=SEED,
+        cluster_metric=cluster_metric,
+        cluster_linkage=cluster_linkage,
         save_path=save_path,
     )
     return result
@@ -1331,6 +1339,10 @@ def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, sa
 def plot_figure4_cluster_summary_all_datasets(
     threshold=1e-7,
     cluster_feature_label_top=0,
+    cluster_metric="euclidean",
+    cluster_linkage="average",
+    cluster_blob_pad=0.52,
+    cluster_fill_alpha=0.16,
     save_path=None,
 ):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
@@ -1345,6 +1357,10 @@ def plot_figure4_cluster_summary_all_datasets(
         method_order=METHOD_ORDER,
         threshold=threshold,
         cluster_feature_label_top=cluster_feature_label_top,
+        cluster_metric=cluster_metric,
+        cluster_linkage=cluster_linkage,
+        cluster_blob_pad=cluster_blob_pad,
+        cluster_fill_alpha=cluster_fill_alpha,
         seed=SEED,
         save_path=save_path,
     )

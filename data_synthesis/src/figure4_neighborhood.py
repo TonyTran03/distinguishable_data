@@ -1310,7 +1310,7 @@ def _blob_polygon(points, pad=0.52, n_angles=96):
     return np.asarray(vertices, dtype=float)
 
 
-def _cluster_blob_geometry(coords, clusters):
+def _cluster_blob_geometry(coords, clusters, pad=0.52):
     geometry = []
     for cluster_id, idx in enumerate(clusters, start=1):
         points = coords[idx]
@@ -1318,12 +1318,19 @@ def _cluster_blob_geometry(coords, clusters):
             "cluster_id": int(cluster_id),
             "feature_indices": np.asarray(idx, dtype=int),
             "center": points.mean(axis=0),
-            "blob": _blob_polygon(points),
+            "blob": _blob_polygon(points, pad=pad),
         })
     return geometry
 
 
-def _draw_neighborhood_blobs(ax, blob_geometry, summary, palette, show_feature_names=False):
+def _draw_neighborhood_blobs(
+    ax,
+    blob_geometry,
+    summary,
+    palette,
+    show_feature_names=False,
+    cluster_fill_alpha=0.16,
+):
     group_rows = []
     summary_by_cluster = summary.set_index("cluster_id")
     all_centers = np.asarray([geom["center"] for geom in blob_geometry], dtype=float)
@@ -1389,22 +1396,23 @@ def _draw_neighborhood_blobs(ax, blob_geometry, summary, palette, show_feature_n
         color = palette.get(method, "#888888")
         center = geom["center"]
         blob = geom["blob"]
-        ax.add_patch(Polygon(
-            blob,
-            closed=True,
-            facecolor=color,
-            edgecolor=color,
-            linewidth=1.0,
-            alpha=0.16,
-            zorder=0,
-        ))
+        if cluster_fill_alpha > 0:
+            ax.add_patch(Polygon(
+                blob,
+                closed=True,
+                facecolor=color,
+                edgecolor=color,
+                linewidth=1.0,
+                alpha=cluster_fill_alpha,
+                zorder=0,
+            ))
         ax.add_patch(Polygon(
             blob,
             closed=True,
             facecolor="none",
             edgecolor=color,
-            linewidth=1.2,
-            alpha=0.82,
+            linewidth=1.55 if cluster_fill_alpha <= 0 else 1.2,
+            alpha=0.90 if cluster_fill_alpha <= 0 else 0.82,
             zorder=2,
         ))
         prominent_features = str(row.get("prominent_features", "")).strip()
@@ -1488,16 +1496,49 @@ def _cluster_dot_colors(clusters, cluster_labels):
     return colors
 
 
-def _draw_cluster_dots(ax, coords, clusters, cluster_labels):
+def _feature_prominence_sizes(real_edges, n_features, min_size=20.0, max_size=190.0):
+    """Scale real-network degree to visible dot-size differences."""
+    degree = np.zeros(int(n_features), dtype=float)
+    for i, j in real_edges:
+        degree[int(i)] += 1.0
+        degree[int(j)] += 1.0
+    if len(degree) == 0:
+        return degree
+    if np.nanmax(degree) <= np.nanmin(degree):
+        return np.full_like(degree, (min_size + max_size) / 2.0)
+    scaled = (np.sqrt(degree) - np.sqrt(np.nanmin(degree))) / (
+        np.sqrt(np.nanmax(degree)) - np.sqrt(np.nanmin(degree))
+    )
+    return min_size + scaled * (max_size - min_size)
+
+
+def _feature_prominence_sizes_from_scores(feature_scores, n_features, min_size=20.0, max_size=190.0):
+    if "real_degree" not in feature_scores:
+        return np.full(int(n_features), (min_size + max_size) / 2.0)
+    degree = (
+        feature_scores.drop_duplicates("feature_index")
+        .sort_values("feature_index")["real_degree"]
+        .to_numpy(dtype=float)
+    )
+    if len(degree) != int(n_features) or np.nanmax(degree) <= np.nanmin(degree):
+        return np.full(int(n_features), (min_size + max_size) / 2.0)
+    scaled = (np.sqrt(degree) - np.sqrt(np.nanmin(degree))) / (
+        np.sqrt(np.nanmax(degree)) - np.sqrt(np.nanmin(degree))
+    )
+    return min_size + scaled * (max_size - min_size)
+
+
+def _draw_cluster_dots(ax, coords, clusters, cluster_labels, dot_sizes=None):
     colors = _cluster_dot_colors(clusters, cluster_labels)
+    dot_sizes = np.full(len(coords), 42.0) if dot_sizes is None else np.asarray(dot_sizes, dtype=float)
     for idx, (x, y) in enumerate(coords):
         ax.scatter(
             x,
             y,
-            s=42,
+            s=float(dot_sizes[idx]),
             color=colors[idx],
             edgecolor="#252525",
-            linewidth=0.52,
+            linewidth=0.68,
             alpha=0.94,
             zorder=3,
         )
@@ -1518,6 +1559,7 @@ def _draw_feature_preservation_tsne_panel(
     palette,
     draw_backbone=False,
     cluster_feature_label_top=0,
+    cluster_fill_alpha=0.16,
 ):
     winners = winners.sort_values("feature_index")
     cluster_summary = _cluster_method_summary(
@@ -1534,6 +1576,7 @@ def _draw_feature_preservation_tsne_panel(
         cluster_summary,
         palette,
         show_feature_names=cluster_feature_label_top > 0,
+        cluster_fill_alpha=cluster_fill_alpha,
     )
 
     if draw_backbone and real_edges:
@@ -1552,7 +1595,8 @@ def _draw_feature_preservation_tsne_panel(
                 zorder=1,
             )
 
-    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
+    dot_sizes = _feature_prominence_sizes(real_edges, coords.shape[0])
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels, dot_sizes=dot_sizes)
 
     ax.set_xticks([])
     ax.set_yticks([])
@@ -1575,6 +1619,7 @@ def _draw_lost_tsne_panel(
     palette,
     feature_names=None,
     cluster_feature_label_top=0,
+    cluster_fill_alpha=0.16,
 ):
     lost = lost.sort_values("feature_index")
     cluster_summary = _cluster_method_summary(
@@ -1591,9 +1636,11 @@ def _draw_lost_tsne_panel(
         cluster_summary,
         palette,
         show_feature_names=cluster_feature_label_top > 0,
+        cluster_fill_alpha=cluster_fill_alpha,
     )
 
-    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
+    dot_sizes = _feature_prominence_sizes_from_scores(feature_scores, coords.shape[0])
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels, dot_sizes=dot_sizes)
 
     ax.set_xticks([])
     ax.set_yticks([])
@@ -1615,6 +1662,7 @@ def _draw_synthetic_only_tsne_panel(
     palette,
     feature_names=None,
     cluster_feature_label_top=0,
+    cluster_fill_alpha=0.16,
 ):
     cluster_summary = _cluster_method_summary(
         feature_scores,
@@ -1630,9 +1678,11 @@ def _draw_synthetic_only_tsne_panel(
         cluster_summary,
         palette,
         show_feature_names=cluster_feature_label_top > 0,
+        cluster_fill_alpha=cluster_fill_alpha,
     )
 
-    _draw_cluster_dots(ax, coords, clusters, cluster_labels)
+    dot_sizes = _feature_prominence_sizes_from_scores(feature_scores, coords.shape[0])
+    _draw_cluster_dots(ax, coords, clusters, cluster_labels, dot_sizes=dot_sizes)
 
     ax.set_xticks([])
     ax.set_yticks([])
@@ -1644,7 +1694,7 @@ def _draw_synthetic_only_tsne_panel(
 
 
 
-def _profile_clusters(profiles, max_clusters=7):
+def _profile_clusters(profiles, max_clusters=7, metric="euclidean", linkage_method="average"):
     n_features = profiles.shape[0]
     if n_features <= 2:
         return np.ones(n_features, dtype=int)
@@ -1653,11 +1703,15 @@ def _profile_clusters(profiles, max_clusters=7):
     profiles = np.asarray(profiles, dtype=float)
     if not np.all(np.isfinite(profiles)) or np.allclose(profiles, profiles[0]):
         return np.ones(n_features, dtype=int)
-    distances = pdist(profiles, metric="euclidean")
+    metric = str(metric or "euclidean")
+    linkage_method = str(linkage_method or "average")
+    if linkage_method == "ward" and metric != "euclidean":
+        metric = "euclidean"
+    distances = pdist(profiles, metric=metric)
     if not np.all(np.isfinite(distances)) or np.allclose(distances, 0):
         return np.ones(n_features, dtype=int)
     try:
-        linkage = hierarchy.linkage(distances, method="average")
+        linkage = hierarchy.linkage(distances, method=linkage_method)
         return hierarchy.fcluster(linkage, t=n_clusters, criterion="maxclust")
     except Exception:
         labels = KMeans(n_clusters=n_clusters, random_state=123, n_init=30).fit_predict(profiles)
@@ -1758,6 +1812,8 @@ def plot_glasso_tsne_layout(
     threshold=1e-7,
     seed=123,
     max_clusters=7,
+    cluster_metric="euclidean",
+    cluster_linkage="average",
     label_top=0,
     panels=None,
     save_path=None,
@@ -1780,7 +1836,12 @@ def plot_glasso_tsne_layout(
     real_partial = real["partial"]
     real_edges = real["edges"]
     coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
-    clusters = _profile_clusters(profiles, max_clusters=max_clusters)
+    clusters = _profile_clusters(
+        profiles,
+        max_clusters=max_clusters,
+        metric=cluster_metric,
+        linkage_method=cluster_linkage,
+    )
 
     fig = plt.figure(figsize=(11.4, 11.4), constrained_layout=False)
     gs = fig.add_gridspec(2, 2, hspace=0.22, wspace=0.16)
@@ -1818,7 +1879,10 @@ def plot_glasso_tsne_layout(
     fig.text(
         0.5,
         0.965,
-        f"{exemplar_ds}: t-SNE layout of Graphical Lasso partial-correlation profiles (perplexity={perplexity:.0f})",
+        (
+            f"{exemplar_ds}: t-SNE layout of Graphical Lasso partial-correlation profiles "
+            f"(t-SNE perplexity={perplexity:.0f}; cluster distance={cluster_metric}, linkage={cluster_linkage})"
+        ),
         ha="center",
         va="top",
         fontsize=12.2,
@@ -1847,6 +1911,8 @@ def plot_figure4_tsne_edge_supplement(
     threshold=1e-7,
     seed=123,
     max_clusters=7,
+    cluster_metric="euclidean",
+    cluster_linkage="average",
     label_top=0,
     save_path=None,
 ):
@@ -1862,6 +1928,8 @@ def plot_figure4_tsne_edge_supplement(
         threshold=threshold,
         seed=seed,
         max_clusters=max_clusters,
+        cluster_metric=cluster_metric,
+        cluster_linkage=cluster_linkage,
         label_top=label_top,
         panels=["E", "F", "G", "H"],
         save_path=save_path,
@@ -1878,6 +1946,10 @@ def plot_figure4_cluster_summary_grid(
     threshold=1e-7,
     seed=123,
     max_clusters=7,
+    cluster_metric="euclidean",
+    cluster_linkage="average",
+    cluster_blob_pad=0.52,
+    cluster_fill_alpha=0.16,
     palette=None,
     cluster_feature_label_top=0,
     save_path=None,
@@ -1895,8 +1967,9 @@ def plot_figure4_cluster_summary_grid(
         method_order=method_order,
     )
 
+    labeled_layout = cluster_feature_label_top > 0
     fig = plt.figure(
-        figsize=(14.4, 4.35 * len(dataset_order) + 1.15),
+        figsize=((15.8 if labeled_layout else 14.4), 4.55 * len(dataset_order) + 1.20),
         constrained_layout=False,
     )
     gs = fig.add_gridspec(
@@ -1904,14 +1977,14 @@ def plot_figure4_cluster_summary_grid(
         4,
         width_ratios=[0.34, 1.0, 1.0, 1.0],
         height_ratios=[0.18] + [1.0] * len(dataset_order),
-        wspace=0.08,
-        hspace=0.20,
+        wspace=0.14 if labeled_layout else 0.08,
+        hspace=0.24 if labeled_layout else 0.20,
     )
 
     corner_ax = fig.add_subplot(gs[0, 0])
     corner_ax.axis("off")
 
-    column_headers = ["Preserved", "Lost", "Synthetic-only"]
+    column_headers = ["Preserved", "Lost", "Synthetic only"]
     for col, header in enumerate(column_headers, start=1):
         header_ax = fig.add_subplot(gs[0, col])
         header_ax.axis("off")
@@ -1921,7 +1994,7 @@ def plot_figure4_cluster_summary_grid(
             header,
             ha="center",
             va="center",
-            fontsize=13.2,
+            fontsize=16.4,
             weight="heavy",
             color="#222222",
             transform=header_ax.transAxes,
@@ -1938,7 +2011,7 @@ def plot_figure4_cluster_summary_grid(
             ha="center",
             va="center",
             rotation=90,
-            fontsize=13.8,
+            fontsize=17.2,
             weight="heavy",
             color="#222222",
             transform=label_ax.transAxes,
@@ -1968,9 +2041,14 @@ def plot_figure4_cluster_summary_grid(
         lost, lost_summary = summarize_feature_loss(feature_scores, method_order=method_order)
         synthetic_only, synthetic_only_summary = summarize_feature_synthetic_only(feature_scores, method_order=method_order)
         coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
-        cluster_labels = _profile_clusters(profiles, max_clusters=max_clusters)
+        cluster_labels = _profile_clusters(
+            profiles,
+            max_clusters=max_clusters,
+            metric=cluster_metric,
+            linkage_method=cluster_linkage,
+        )
         clusters = _clusters_from_labels(cluster_labels)
-        blob_geometry = _cluster_blob_geometry(coords, clusters)
+        blob_geometry = _cluster_blob_geometry(coords, clusters, pad=cluster_blob_pad)
 
         preserve_group_summary = _draw_feature_preservation_tsne_panel(
             plot_axes[row, 0],
@@ -1987,6 +2065,7 @@ def plot_figure4_cluster_summary_grid(
             palette,
             draw_backbone=False,
             cluster_feature_label_top=cluster_feature_label_top,
+            cluster_fill_alpha=cluster_fill_alpha,
         )
         lost_group_summary = _draw_lost_tsne_panel(
             plot_axes[row, 1],
@@ -2000,6 +2079,7 @@ def plot_figure4_cluster_summary_grid(
             palette,
             feature_names=names,
             cluster_feature_label_top=cluster_feature_label_top,
+            cluster_fill_alpha=cluster_fill_alpha,
         )
         synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
             plot_axes[row, 2],
@@ -2012,6 +2092,7 @@ def plot_figure4_cluster_summary_grid(
             palette,
             feature_names=names,
             cluster_feature_label_top=cluster_feature_label_top,
+            cluster_fill_alpha=cluster_fill_alpha,
         )
         summaries = [
             (preserve_group_summary, "preserve"),
@@ -2022,9 +2103,10 @@ def plot_figure4_cluster_summary_grid(
             panel = panel_letters[panel_idx]
             plot_axes[row, col].set_title(
                 panel,
-                loc="left",
-                fontsize=10.6,
-                weight="semibold",
+                loc="center",
+                fontsize=13.2,
+                weight="heavy",
+                color="#111111",
                 pad=7,
             )
             group_summaries.append(summary.assign(dataset=dataset, panel=panel, mode=mode, perplexity=perplexity))
@@ -2034,16 +2116,21 @@ def plot_figure4_cluster_summary_grid(
         Patch(facecolor=palette.get(method, "#888888"), edgecolor=palette.get(method, "#888888"), alpha=0.28, label=method)
         for method in method_order
     ]
+    legend_fontsize = 15.4
+    legend_title_fontsize = 13.2
+    legend_y = 0.93
     fig.legend(
         handles=handles,
         loc="upper center",
-        bbox_to_anchor=(0.55, 0.86),
+        bbox_to_anchor=(0.54, legend_y),
         ncol=len(method_order),
         frameon=False,
-        fontsize=8.8,
-        handlelength=1.5,
-        handletextpad=0.45,
-        columnspacing=1.15,
+        title="Synthetic Method",
+        title_fontsize=legend_title_fontsize,
+        fontsize=legend_fontsize,
+        handlelength=1.25,
+        handletextpad=0.35,
+        columnspacing=0.75,
     )
     # fig.text(
     #     0.5,
@@ -2054,7 +2141,7 @@ def plot_figure4_cluster_summary_grid(
     #     fontsize=13.2,
     #     weight="semibold",
     # )
-    fig.subplots_adjust(left=0.045, right=0.992, top=0.895, bottom=0.035)
+    fig.subplots_adjust(left=0.045, right=0.992, top=0.845, bottom=0.035)
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
