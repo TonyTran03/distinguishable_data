@@ -1342,6 +1342,9 @@ from src.figure4_neighborhood import (
     plot_figure4_metric_summary,
     plot_figure4_neighborhood_overlap,
     plot_figure4_edge_overlap_matrix,
+    plot_figure4_edge_status_matrices,
+    plot_figure4_cluster_summary_grid,
+    plot_figure4_tsne_edge_supplement,
     plot_feature_preservation_tsne,
     plot_glasso_tsne_layout,
     plot_glasso_tsne_layout_with_neighborhood_summary,
@@ -1382,11 +1385,11 @@ def _get_figure4_precision_inputs(seed=SEED, cvae_epochs=CVAE_EPOCHS):
     return figure4_supp_real_data, figure4_supp_synthetic_data, figure4_supp_feature_names
 
 
-def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7):
+def plot_figure4_combined_edge_status(dataset_name="HIV", threshold=1e-7, cluster_feature_label_top=0):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
-    return plot_combined_edge_status_and_glasso_tsne(
+    result = plot_combined_edge_status_and_glasso_tsne(
         real_data=real_data,
         synthetic_data=synthetic_data,
         feature_names=feature_name_map,
@@ -1396,14 +1399,38 @@ def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7):
         exemplar_ds=dataset_name,
         threshold=threshold,
         seed=SEED,
+        cluster_feature_label_top=cluster_feature_label_top,
     )
+    return result
 
 
-def plot_figure4_glasso_tsne(dataset_name="HIV", threshold=1e-7):
+def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
-    return plot_glasso_tsne_layout_with_neighborhood_summary(
+    result = plot_figure4_edge_status_matrices(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_name_map,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=DATASET_ORDER,
+        method_order=METHOD_ORDER,
+        exemplar_ds=dataset_name,
+        threshold=threshold,
+        save_path=save_path,
+    )
+    return result
+
+
+def plot_figure4_edge_status_matrix_figure(dataset_name="HIV", threshold=1e-7, save_path=None):
+    return plot_figure4_edge_status(dataset_name=dataset_name, threshold=threshold, save_path=save_path)
+
+
+def plot_figure4_glasso_tsne(dataset_name="HIV", threshold=1e-7, cluster_feature_label_top=0):
+    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
+        seed=SEED, cvae_epochs=CVAE_EPOCHS
+    )
+    result = plot_glasso_tsne_layout_with_neighborhood_summary(
         real_data=real_data,
         synthetic_data=synthetic_data,
         feature_names=feature_name_map,
@@ -1414,14 +1441,16 @@ def plot_figure4_glasso_tsne(dataset_name="HIV", threshold=1e-7):
         threshold=threshold,
         seed=SEED,
         draw_backbone=False,
+        cluster_feature_label_top=cluster_feature_label_top,
     )
+    return result
 
 
 def plot_figure4_glasso_tsne_edges(dataset_name="HIV", threshold=1e-7):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
-    return plot_glasso_tsne_layout(
+    result = plot_glasso_tsne_layout(
         real_data=real_data,
         synthetic_data=synthetic_data,
         feature_names=feature_name_map,
@@ -1432,9 +1461,61 @@ def plot_figure4_glasso_tsne_edges(dataset_name="HIV", threshold=1e-7):
         threshold=threshold,
         seed=SEED,
     )
+    return result
+
+
+def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, save_path=None):
+    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
+        seed=SEED, cvae_epochs=CVAE_EPOCHS
+    )
+    result = plot_figure4_tsne_edge_supplement(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_name_map,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=DATASET_ORDER,
+        method_order=METHOD_ORDER,
+        exemplar_ds=dataset_name,
+        threshold=threshold,
+        seed=SEED,
+        save_path=save_path,
+    )
+    return result
+
+
+def plot_figure4_cluster_summary_all_datasets(threshold=1e-7, save_path=None):
+    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
+        seed=SEED, cvae_epochs=CVAE_EPOCHS
+    )
+    result = plot_figure4_cluster_summary_grid(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_name_map,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=["HIV", "Diabetes", "Breast Cancer"],
+        method_order=METHOD_ORDER,
+        threshold=threshold,
+        seed=SEED,
+        save_path=save_path,
+    )
+    return result
+
+
+def display_figure_once(fig):
+    """Display a Matplotlib figure in notebooks without the inline backend echo."""
+    from IPython.display import display
+
+    display(fig)
+    plt.close(fig)
+
+
+def display_result_once(result):
+    """Display a Figure4Result-like object once in notebooks, then close its figure."""
+    display_figure_once(result.fig)
+    return result
 
 def plot_figure4_correlation_change(corr_summary=None, exemplar_ds="HIV", anchor_feature=None, threshold=1e-7):
-    return plot_figure4_edge_status(exemplar_ds, threshold=threshold)
+    return plot_figure4_combined_edge_status(exemplar_ds, threshold=threshold)
 
 
 def build_figure4_supplemental_figures_inline(
@@ -1442,6 +1523,7 @@ def build_figure4_supplemental_figures_inline(
     synthetic_data,
     feature_names,
     seed=SEED,
+    cluster_feature_label_top=0,
 ):
     """Build Figure 4 supplemental displays without writing image/CSV exports."""
     examples_result = plot_edge_status_examples(
@@ -1468,6 +1550,7 @@ def build_figure4_supplemental_figures_inline(
             exemplar_ds=dataset,
             seed=seed,
             save_path=None,
+            cluster_feature_label_top=cluster_feature_label_top,
         )
         results[dataset] = result
         metrics.append(result.metrics.assign(figure_dataset=dataset))

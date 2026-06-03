@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 import numpy as np
 import pandas as pd
@@ -25,8 +26,10 @@ from models.gmm import sample_gmm
 from models.iid_columnwise import sample_columnwise
 from src.data import load_rdata_xy_names
 from src.figure4_neighborhood import (
-    plot_combined_edge_status_and_glasso_tsne,
     plot_edge_status_examples,
+    plot_figure4_cluster_summary_grid,
+    plot_figure4_edge_status_matrices,
+    plot_figure4_tsne_edge_supplement,
 )
 from util.config import Config
 
@@ -161,7 +164,11 @@ def export_figure4_supplemental_figures(
 ):
     output_dir = Path(output_dir or PKG_ROOT / "notebooks" / "revision_exports")
     output_dir.mkdir(parents=True, exist_ok=True)
+    tsne_output_dir = output_dir / "t-SNE analysis"
+    tsne_output_dir.mkdir(parents=True, exist_ok=True)
+    exported_figures = []
 
+    examples_path = output_dir / "supplemental_figure_s1_edge_status_examples.png"
     examples_result = plot_edge_status_examples(
         real_data=real_data,
         synthetic_data=synthetic_data,
@@ -170,15 +177,63 @@ def export_figure4_supplemental_figures(
         dataset_order=DATASET_ORDER,
         method_order=METHOD_ORDER,
         exemplar_ds="HIV",
-        save_path=output_dir / "supplemental_figure_s1_edge_status_examples.png",
+        save_path=examples_path,
     )
+    exported_figures.append({
+        "section": "Supplement",
+        "dataset": "HIV",
+        "figure": "Edge-status examples",
+        "path": str(examples_path),
+    })
 
     all_metrics = [
         examples_result.metrics.assign(figure_dataset="HIV examples"),
     ]
     results = {"HIV examples": examples_result}
-    for dataset in SUPPLEMENTAL_DATASETS:
-        result = plot_combined_edge_status_and_glasso_tsne(
+    plt.close(examples_result.fig)
+    hiv_matrices_path = output_dir / "figure4_hiv_edge_status_matrices.png"
+    hiv_matrices_result = plot_figure4_edge_status_matrices(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_names,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=DATASET_ORDER,
+        method_order=METHOD_ORDER,
+        exemplar_ds="HIV",
+        save_path=hiv_matrices_path,
+    )
+    exported_figures.append({
+        "section": "Main text",
+        "dataset": "HIV",
+        "figure": "Graphical Lasso edge-status matrices A-D",
+        "path": str(hiv_matrices_path),
+    })
+    all_metrics.append(hiv_matrices_result.metrics.assign(figure_dataset="HIV A-D matrices"))
+    results["HIV A-D matrices"] = hiv_matrices_result
+    plt.close(hiv_matrices_result.fig)
+    cluster_summary_path = output_dir / "figure4_cluster_summary_all_datasets.png"
+    cluster_summary_result = plot_figure4_cluster_summary_grid(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_names,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=["HIV", "Diabetes", "Breast Cancer"],
+        method_order=METHOD_ORDER,
+        seed=seed,
+        save_path=cluster_summary_path,
+    )
+    exported_figures.append({
+        "section": "Main text",
+        "dataset": "All datasets",
+        "figure": "Cluster-level t-SNE summaries",
+        "path": str(cluster_summary_path),
+    })
+    all_metrics.append(cluster_summary_result.metrics.assign(figure_dataset="all dataset I-K cluster summaries"))
+    results["all dataset I-K cluster summaries"] = cluster_summary_result
+    plt.close(cluster_summary_result.fig)
+    for dataset in DATASET_ORDER:
+        tsne_path = tsne_output_dir / f"supplemental_tsne_analysis_{dataset.lower().replace(' ', '_')}.png"
+        result = plot_figure4_tsne_edge_supplement(
             real_data=real_data,
             synthetic_data=synthetic_data,
             feature_names=feature_names,
@@ -187,13 +242,21 @@ def export_figure4_supplemental_figures(
             method_order=METHOD_ORDER,
             exemplar_ds=dataset,
             seed=seed,
-            save_path=output_dir / f"supplemental_figure4_{dataset.lower().replace(' ', '_')}_combined_edge_tsne.png",
+            save_path=tsne_path,
         )
-        all_metrics.append(result.metrics.assign(figure_dataset=dataset))
-        results[dataset] = result
+        exported_figures.append({
+            "section": "Supplement: t-SNE analysis",
+            "dataset": dataset,
+            "figure": "Graphical Lasso t-SNE edge overlays E-H",
+            "path": str(tsne_path),
+        })
+        all_metrics.append(result.metrics.assign(figure_dataset=f"{dataset} t-SNE analysis"))
+        results[f"{dataset} t-SNE analysis"] = result
+        plt.close(result.fig)
 
     metrics = pd.concat(all_metrics, ignore_index=True)
     metrics.to_csv(output_dir / "figure4_structural_metrics.csv", index=False)
+    pd.DataFrame(exported_figures).to_csv(output_dir / "figure4_exported_figures.csv", index=False)
     return results, metrics
 
 
