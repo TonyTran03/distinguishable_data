@@ -922,85 +922,6 @@ def compute_figure4_frobenius_summary(datasets, seed=SEED, cvae_epochs=CVAE_EPOC
     return pd.DataFrame(rows)
 
 
-def draw_real_corr_heatmap(ax, fig, dataset, data, panel):
-    real_corr, ordered_features, _ = ordered_real_correlation(dataset, data)
-    im = ax.imshow(real_corr, aspect="auto", cmap=PASTEL_CORR_CMAP, vmin=-1, vmax=1)
-    ax.set_title(dataset, color=DATASET_COLORS[dataset], weight="semibold", pad=8)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.text(
-        0.04, 0.05, f"p={real_corr.shape[0]}", transform=ax.transAxes,
-        ha="left", va="bottom", color=DATASET_COLORS[dataset], fontsize=8.7, weight="bold",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.78, pad=2.5),
-    )
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(1.1)
-    add_panel_label(ax, panel)
-    return im
-
-
-def draw_frobenius_discrepancy(ax, frobenius_summary, panel):
-    table = (
-        frobenius_summary
-        .pivot(index="dataset", columns="method", values="frobenius_corr_discrepancy")
-        .reindex(DATASET_ORDER)[METHOD_ORDER]
-    )
-    x = np.arange(len(DATASET_ORDER))
-    offsets = np.linspace(-0.27, 0.27, len(METHOD_ORDER))
-    width = 0.15
-    max_y = float(np.nanmax(table.to_numpy(dtype=float)))
-
-    for offset, method in zip(offsets, METHOD_ORDER):
-        vals = table[method].to_numpy(dtype=float)
-        ax.bar(
-            x + offset, vals, width=width, color=METHOD_PASTELS[method], edgecolor=METHOD_COLORS[method],
-            linewidth=1.25, label=method, zorder=2,
-        )
-        ax.scatter(x + offset, vals, s=28, color=METHOD_COLORS[method], edgecolor="white", linewidth=0.7, zorder=3)
-        for xi, val in zip(x + offset, vals):
-            ax.text(xi, val + max_y * 0.025, f"{val:.1f}", ha="center", va="bottom", fontsize=7.4, color="#333333")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(DATASET_ORDER, rotation=15, ha="right")
-    ax.set_ylabel(r"$||C_{real} - C_{synthetic}||_F$")
-    ax.set_title("Synthetic discrepancy from real", weight="semibold", pad=8)
-    ax.set_ylim(0, max_y * 1.18)
-    clean_axis(ax, grid_axis="y")
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=8.5)
-    add_panel_label(ax, panel)
-    return table
-
-
-def plot_figure4_structure_panel(datasets, frobenius_summary=None, seed=SEED, cvae_epochs=CVAE_EPOCHS):
-    if frobenius_summary is None:
-        frobenius_summary = compute_figure4_frobenius_summary(datasets, seed=seed, cvae_epochs=cvae_epochs)
-
-    fig = plt.figure(figsize=(14.4, 7.6), constrained_layout=False)
-    gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 0.95], hspace=0.34, wspace=0.24)
-    heatmap_axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
-    ax_summary = fig.add_subplot(gs[1, :])
-
-    heatmap_images = []
-    for ax, ds, panel in zip(heatmap_axes, DATASET_ORDER, ["A", "B", "C"]):
-        heatmap_images.append(draw_real_corr_heatmap(ax, fig, ds, datasets[ds], panel))
-
-    cbar = fig.colorbar(heatmap_images[0], ax=heatmap_axes, fraction=0.032, pad=0.018)
-    cbar.set_label("Real feature correlation", fontsize=9)
-    cbar.ax.tick_params(labelsize=8)
-
-    draw_frobenius_discrepancy(ax_summary, frobenius_summary, "D")
-    fig.suptitle("Figure 4. Real feature-correlation structure and synthetic discrepancy", y=0.975, fontsize=15.5, weight="semibold")
-    fig.text(
-        0.5, 0.025,
-        r"Panels A-C show the real correlation matrix for each dataset. Panel D reports $||C_{real} - C_{synthetic}||_F$; lower values indicate better preservation of the real correlation structure.",
-        ha="center", va="bottom", fontsize=9.5, color="#444444",
-    )
-    fig.subplots_adjust(left=0.07, right=0.88, top=0.90, bottom=0.13)
-    return fig
-
-
-
 
 def rank_discriminating_features(X_real, X_syn, seed=SEED):
     Xr, Xs = standardize_pair(X_real, X_syn)
@@ -1327,29 +1248,12 @@ def plot_figure2_nine_panel(auc_runs):
 
 
 # Figure 4 helpers
-import importlib
 from src.figure4_neighborhood import (
-    fit_glasso_precision,
-    precision_to_partial_corr,
-    get_edge_set,
-    choose_anchor_feature,
-    get_anchor_neighborhood_edges,
-    plot_overlap_neighborhood,
-    compute_edge_recovery,
-    compute_synthetic_only_rate,
-    compute_frobenius_deviation,
-    plot_summary_metrics,
     plot_figure4_metric_summary,
-    plot_figure4_neighborhood_overlap,
-    plot_figure4_edge_overlap_matrix,
     plot_figure4_edge_status_matrices,
     plot_figure4_cluster_summary_grid,
     plot_figure4_tsne_edge_supplement,
-    plot_feature_preservation_tsne,
-    plot_glasso_tsne_layout,
-    plot_glasso_tsne_layout_with_neighborhood_summary,
     plot_edge_status_examples,
-    plot_supplemental_edge_status_matrices,
     plot_combined_edge_status_and_glasso_tsne,
 )
 
@@ -1422,47 +1326,6 @@ def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None)
     return result
 
 
-def plot_figure4_edge_status_matrix_figure(dataset_name="HIV", threshold=1e-7, save_path=None):
-    return plot_figure4_edge_status(dataset_name=dataset_name, threshold=threshold, save_path=save_path)
-
-
-def plot_figure4_glasso_tsne(dataset_name="HIV", threshold=1e-7, cluster_feature_label_top=0):
-    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
-        seed=SEED, cvae_epochs=CVAE_EPOCHS
-    )
-    result = plot_glasso_tsne_layout_with_neighborhood_summary(
-        real_data=real_data,
-        synthetic_data=synthetic_data,
-        feature_names=feature_name_map,
-        alphas=FIGURE4_ALPHAS,
-        dataset_order=DATASET_ORDER,
-        method_order=METHOD_ORDER,
-        exemplar_ds=dataset_name,
-        threshold=threshold,
-        seed=SEED,
-        draw_backbone=False,
-        cluster_feature_label_top=cluster_feature_label_top,
-    )
-    return result
-
-
-def plot_figure4_glasso_tsne_edges(dataset_name="HIV", threshold=1e-7):
-    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
-        seed=SEED, cvae_epochs=CVAE_EPOCHS
-    )
-    result = plot_glasso_tsne_layout(
-        real_data=real_data,
-        synthetic_data=synthetic_data,
-        feature_names=feature_name_map,
-        alphas=FIGURE4_ALPHAS,
-        dataset_order=DATASET_ORDER,
-        method_order=METHOD_ORDER,
-        exemplar_ds=dataset_name,
-        threshold=threshold,
-        seed=SEED,
-    )
-    return result
-
 
 def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, save_path=None):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
@@ -1510,12 +1373,9 @@ def display_figure_once(fig):
 
 
 def display_result_once(result):
-    """Display a Figure4Result-like object once in notebooks, then close its figure."""
+    """ This codebase sucks"""
     display_figure_once(result.fig)
     return result
-
-def plot_figure4_correlation_change(corr_summary=None, exemplar_ds="HIV", anchor_feature=None, threshold=1e-7):
-    return plot_figure4_combined_edge_status(exemplar_ds, threshold=threshold)
 
 
 def build_figure4_supplemental_figures_inline(
