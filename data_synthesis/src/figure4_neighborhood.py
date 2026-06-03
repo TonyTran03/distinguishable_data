@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse, Patch, Polygon
+from matplotlib.patches import Patch, Polygon
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import pdist, squareform
 from sklearn import covariance
@@ -212,39 +212,6 @@ def _short_label(label, max_chars=18):
     return label[: max_chars - 1] + "."
 
 
-def _draw_radial_labels(ax, graph, pos, feature_names, anchor):
-    ax.text(
-        pos[anchor][0],
-        pos[anchor][1],
-        _short_label(feature_names[anchor], 13),
-        fontsize=6.9,
-        ha="center",
-        va="center",
-        weight="semibold",
-        zorder=5,
-    )
-    for node in graph.nodes:
-        if node == anchor:
-            continue
-        x, y = pos[node]
-        angle = np.degrees(np.arctan2(y, x))
-        rotation = angle
-        ha = "left"
-        if angle > 90 or angle < -90:
-            rotation = angle + 180
-            ha = "right"
-        lx, ly = np.array([x, y]) * 1.17
-        ax.text(
-            lx,
-            ly,
-            _short_label(feature_names[node], 17),
-            fontsize=6.2,
-            rotation=rotation,
-            rotation_mode="anchor",
-            ha=ha,
-            va="center",
-            color="#202020",
-        )
 
 
 def _anchor_layout(nodes, anchor):
@@ -258,59 +225,6 @@ def _anchor_layout(nodes, anchor):
     return pos
 
 
-def plot_overlap_neighborhood(
-    ax,
-    real_partial,
-    synthetic_partial,
-    real_edges,
-    synthetic_edges,
-    anchor,
-    feature_names,
-    title,
-    fixed_nodes=None,
-    fixed_pos=None,
-    max_neighbors=None,
-    prefer="preserved",
-):
-    """Plot preserved, lost, and invented conditional-dependency edges around one anchor."""
-    categories = get_anchor_neighborhood_edges(real_edges, synthetic_edges, anchor)
-    categories = _filter_anchor_neighborhood(
-        categories, real_partial, synthetic_partial, max_neighbors=max_neighbors, prefer=prefer
-    )
-    nodes = set(fixed_nodes or {anchor})
-    for edge in categories["all"]:
-        nodes.update(edge)
-    nodes.add(anchor)
-    pos = fixed_pos or _anchor_layout(nodes, anchor)
-
-    graph = nx.Graph()
-    graph.add_nodes_from(nodes)
-    graph.add_edges_from(categories["all"])
-
-    node_sizes = [610 if n == anchor else 185 for n in graph.nodes]
-    node_colors = ["#F7C948" if n == anchor else "#F7F7F7" for n in graph.nodes]
-    nx.draw_networkx_nodes(
-        graph, pos, nodelist=list(graph.nodes), node_size=node_sizes, node_color=node_colors,
-        edgecolors="#303030", linewidths=1.0, ax=ax
-    )
-
-    for category in ("preserved", "real_only", "synthetic_only"):
-        for edge in sorted(categories[category]):
-            width = 1.0 + 6.0 * _edge_weight(edge, real_partial, synthetic_partial, category)
-            style = "solid" if _edge_sign(edge, real_partial, synthetic_partial, category) >= 0 else "dashed"
-            nx.draw_networkx_edges(
-                graph, pos, edgelist=[edge], width=width, edge_color=EDGE_COLORS[category],
-                style=style, alpha=0.92, ax=ax
-            )
-
-    _draw_radial_labels(ax, graph, pos, feature_names, anchor)
-
-    ax.set_title(title, fontsize=10.5, weight="semibold", pad=8)
-    ax.set_xlim(-1.45, 1.45)
-    ax.set_ylim(-1.35, 1.35)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    return categories
 
 
 def _fit_structures(real_data, synthetic_data, alphas=None, threshold=1e-7, dataset_order=None, method_order=None):
@@ -516,345 +430,12 @@ def make_feature_index_table(feature_names, order):
     })
 
 
-def _add_axes_titles(fig, axes, titles, fontsize=10.6, pad=0.004):
-    for ax, title in zip(axes, titles):
-        box = ax.get_position()
-        fig.text(
-            (box.x0 + box.x1) / 2,
-            box.y1 + pad,
-            title,
-            ha="center",
-            va="bottom",
-            fontsize=fontsize,
-            weight="semibold",
-        )
-
-
-def plot_edge_status_matrix(
-    ax,
-    status_matrix,
-    order,
-    title,
-    subtitle=None,
-    triangle=False,
-    show_axes=True,
-    show_xlabel=True,
-):
-    ordered = status_matrix[np.ix_(order, order)]
-    cmap = ListedColormap([
-        STATUS_COLORS["absent"],
-        STATUS_COLORS["preserved"],
-        STATUS_COLORS["real_only"],
-        STATUS_COLORS["synthetic_only"],
-    ])
-    if triangle:
-        cmap = cmap.copy()
-        cmap.set_bad((1, 1, 1, 0))
-        ordered = np.ma.array(ordered, mask=np.triu(np.ones_like(ordered, dtype=bool), k=0))
-
-    ax.imshow(ordered, cmap=cmap, vmin=-0.5, vmax=3.5, interpolation="nearest", aspect="equal")
-    if title:
-        ax.set_title(title, fontsize=10.6, weight="semibold", pad=4)
-    if subtitle:
-        ax.text(0.5, 1.006, subtitle, transform=ax.transAxes, ha="center", va="bottom",
-                fontsize=8.2, color="#4B4B4B")
-
-    n = len(order)
-    tick_step = 1 if n <= 12 else 5 if n <= 35 else 10
-    ticks = np.arange(0, n, tick_step)
-    labels = [str(i + 1) for i in ticks]
-    if show_axes:
-        ax.set_xticks(ticks)
-        ax.set_yticks(ticks)
-        ax.set_xticklabels(labels, fontsize=7.0)
-        ax.set_yticklabels(labels, fontsize=7.0)
-        ax.set_xlabel("Feature index" if show_xlabel else "", fontsize=7.8, labelpad=1)
-        ax.set_ylabel("Feature index", fontsize=7.8, labelpad=1)
-        ax.tick_params(length=2.0, width=0.8, pad=1.5)
-    else:
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_xlabel("")
-        ax.set_ylabel("")
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(0.8)
-        spine.set_color("#555555")
-    return ax
 
 
 
 
-def plot_combined_edge_status_and_glasso_tsne(
-    real_data,
-    synthetic_data,
-    feature_names,
-    alphas=None,
-    dataset_order=None,
-    method_order=None,
-    exemplar_ds="HIV",
-    comparison_methods=None,
-    threshold=1e-7,
-    seed=123,
-    max_clusters=7,
-    label_top=0,
-    cluster_feature_label_top=0,
-    save_path=None,
-):
-    """Combine edge-status matrices with matching Graphical Lasso t-SNE panels."""
-    method_order = list(method_order or synthetic_data[exemplar_ds].keys())
-    dataset_order = list(dataset_order or real_data.keys())
-    comparison_methods = list(comparison_methods or ["Bootstrap", "Column-wise", "CVAE", "GMM"])
-    comparison_methods = [m for m in comparison_methods if m in method_order][:4]
-    if len(comparison_methods) < 4:
-        comparison_methods.extend([m for m in method_order if m not in comparison_methods])
-    comparison_methods = comparison_methods[:4]
 
-    structures, metrics = _fit_structures(
-        real_data,
-        synthetic_data,
-        alphas=alphas,
-        threshold=threshold,
-        dataset_order=dataset_order,
-        method_order=method_order,
-    )
 
-    names = list(feature_names[exemplar_ds] if isinstance(feature_names, Mapping) else feature_names)
-    real = structures[exemplar_ds]["real"]
-    real_edges = real["edges"]
-    real_partial = real["partial"]
-    order = get_real_structure_order(real_partial)
-    feature_index = make_feature_index_table(names, order)
-
-    coords, profiles, perplexity = _fit_profile_tsne(real_partial, seed=seed)
-    cluster_labels = _profile_clusters(profiles, max_clusters=max_clusters)
-    clusters = _clusters_from_labels(cluster_labels)
-    blob_geometry = _cluster_blob_geometry(coords, clusters)
-    synthetic_edge_map = {
-        method: structures[exemplar_ds]["synthetic"][method]["edges"]
-        for method in comparison_methods
-    }
-    feature_scores = build_feature_preservation_scores(
-        real_edges,
-        synthetic_edge_map,
-        real_partial.shape[0],
-    )
-    winners, preservation_summary = summarize_feature_preservation(feature_scores, method_order=comparison_methods)
-    lost, lost_summary = summarize_feature_loss(feature_scores, method_order=comparison_methods)
-    synthetic_only, synthetic_only_summary = summarize_feature_synthetic_only(feature_scores, method_order=comparison_methods)
-    winners["feature_name"] = [names[i] for i in winners["feature_index"]]
-    lost["feature_name"] = [names[i] for i in lost["feature_index"]]
-    synthetic_only["feature_name"] = [names[i] for i in synthetic_only["feature_index"]]
-    palette = dict(METHOD_PRESERVATION_COLORS)
-
-    fig = plt.figure(figsize=(13.4, 17.6), constrained_layout=False)
-    gs = fig.add_gridspec(
-        7,
-        6,
-        height_ratios=[0.92, 0.92, 0.20, 1.0, 1.0, 0.16, 0.84],
-        hspace=0.26,
-        wspace=0.10,
-    )
-    matrix_axes = [
-        fig.add_subplot(gs[0, 0:3]),
-        fig.add_subplot(gs[0, 3:6]),
-        fig.add_subplot(gs[1, 0:3]),
-        fig.add_subplot(gs[1, 3:6]),
-    ]
-    tsne_axes = [
-        fig.add_subplot(gs[3, 0:3]),
-        fig.add_subplot(gs[3, 3:6]),
-        fig.add_subplot(gs[4, 0:3]),
-        fig.add_subplot(gs[4, 3:6]),
-    ]
-    summary_axes = [
-        fig.add_subplot(gs[6, 0:2]),
-        fig.add_subplot(gs[6, 2:4]),
-        fig.add_subplot(gs[6, 4:6]),
-    ]
-
-    matrix_titles = []
-    for ax, panel, method in zip(matrix_axes, ["A", "B", "C", "D"], comparison_methods):
-        syn_edges = structures[exemplar_ds]["synthetic"][method]["edges"]
-        status = build_edge_status_matrix(real_edges, syn_edges, real_partial.shape[0])
-        matrix_titles.append(f"{panel}. {method} vs Real")
-        plot_edge_status_matrix(
-            ax,
-            status,
-            order,
-            None,
-            triangle=False,
-            show_axes=True,
-            show_xlabel=(panel in {"C", "D"}),
-        )
-
-    for idx, (ax, panel, method) in enumerate(zip(tsne_axes, ["E", "F", "G", "H"], comparison_methods)):
-        syn = structures[exemplar_ds]["synthetic"][method]
-        _draw_glasso_tsne_panel(
-            ax,
-            coords,
-            cluster_labels,
-            real_partial,
-            real_edges,
-            syn["partial"],
-            syn["edges"],
-            names,
-            f"{panel}. {method} vs Real",
-            label_top=label_top,
-            show_xlabel=idx >= 2,
-        )
-
-    preserve_group_summary = _draw_feature_preservation_tsne_panel(
-        summary_axes[0],
-        coords,
-        real_edges,
-        real_partial,
-        names,
-        winners,
-        feature_scores,
-        clusters,
-        blob_geometry,
-        cluster_labels,
-        comparison_methods,
-        palette,
-        draw_backbone=False,
-        cluster_feature_label_top=cluster_feature_label_top,
-    )
-    lost_group_summary = _draw_lost_tsne_panel(
-        summary_axes[1],
-        coords,
-        lost,
-        feature_scores,
-        clusters,
-        blob_geometry,
-        cluster_labels,
-        comparison_methods,
-        palette,
-        feature_names=names,
-        cluster_feature_label_top=cluster_feature_label_top,
-    )
-    synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
-        summary_axes[2],
-        coords,
-        feature_scores,
-        clusters,
-        blob_geometry,
-        cluster_labels,
-        comparison_methods,
-        palette,
-        feature_names=names,
-        cluster_feature_label_top=cluster_feature_label_top,
-    )
-    for ax, panel, title in zip(summary_axes, ["I", "J", "K"], ["preserve", "lost", "synthetic-only"]):
-        ax.set_title(f"{panel}. {title}", fontsize=11.0, weight="semibold", pad=7)
-
-    status_handles = [
-        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
-        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
-        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
-        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
-    ]
-    edge_handles = [
-        Line2D([0], [0], marker="o", color="none", markerfacecolor="#777777", markeredgecolor="#1F1F1F", markersize=7, label="Feature"),
-        Line2D([0], [0], color=EDGE_COLORS["preserved"], lw=3, label="Preserved edge"),
-        Line2D([0], [0], color=EDGE_COLORS["real_only"], lw=3, label="Real-only / lost"),
-        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], lw=3, label="Synthetic-only edge"),
-    ]
-    fig.suptitle(
-        f"{exemplar_ds}: real conditional-dependency preservation and t-SNE structural overlays",
-        y=0.985,
-        fontsize=14.6,
-        weight="semibold",
-    )
-    fig.subplots_adjust(left=0.038, right=0.992, top=0.925, bottom=0.030)
-    _add_axes_titles(fig, matrix_axes, matrix_titles)
-    status_legend_y = matrix_axes[0].get_position().y1 + 0.66 * (0.985 - matrix_axes[0].get_position().y1)
-    fig.legend(
-        handles=status_handles,
-        loc="center",
-        bbox_to_anchor=(0.5, status_legend_y),
-        ncol=4,
-        frameon=False,
-        fontsize=8.0,
-        handlelength=1.4,
-        handletextpad=0.45,
-        columnspacing=1.05,
-        borderaxespad=0.3,
-    )
-    graph_gap_top = matrix_axes[2].get_position().y0
-    graph_gap_bottom = tsne_axes[0].get_position().y1
-    graph_title_y = graph_gap_bottom + 0.68 * (graph_gap_top - graph_gap_bottom)
-    graph_legend_y = graph_gap_bottom + 0.28 * (graph_gap_top - graph_gap_bottom)
-    summary_title_y = (tsne_axes[2].get_position().y0 + summary_axes[0].get_position().y1) / 2
-    fig.text(
-        0.5,
-        graph_title_y,
-        f"Graphical Lasso partial-correlation profile t-SNE (perplexity={perplexity:.0f})",
-        ha="center",
-        va="center",
-        fontsize=11.4,
-        weight="semibold",
-    )
-    fig.legend(
-        handles=edge_handles,
-        loc="lower center",
-        bbox_to_anchor=(0.5, 0.015),
-        ncol=4,
-        frameon=False,
-        fontsize=7.8,
-        handlelength=2.0,
-        handletextpad=0.55,
-        columnspacing=1.25,
-    )
-    fig.text(
-        0.5,
-        summary_title_y,
-        "Cluster-level feature summaries on the same t-SNE layout",
-        ha="center",
-        va="center",
-        fontsize=11.4,
-        weight="semibold",
-    )
-
-    if save_path is not None:
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
-
-    feature_plot_table = winners.merge(
-        feature_scores.pivot(index="feature_index", columns="method", values="preservation_score")
-        .add_prefix("preservation_score_")
-        .reset_index(),
-        on="feature_index",
-        how="left",
-    )
-
-    result = Figure4Result(
-        fig=fig,
-        metrics=metrics,
-        anchor=-1,
-        anchor_feature="",
-        structures=structures,
-        edge_recovery=feature_scores,
-        feature_index=feature_index,
-    )
-    result.preservation_summary = preservation_summary
-    result.lost_summary = lost_summary
-    result.synthetic_only_summary = synthetic_only_summary
-    result.preserve_group_summary = preserve_group_summary
-    result.lost_group_summary = lost_group_summary
-    result.synthetic_only_group_summary = synthetic_only_group_summary
-    result.neighborhood_summary = preserve_group_summary
-    result.feature_preservation_index = feature_plot_table
-    result.tsne_coordinates = pd.DataFrame({
-        "feature_index": np.arange(real_partial.shape[0], dtype=int),
-        "feature_name": names,
-        "profile_cluster": cluster_labels,
-        "preserve_method": winners["best_method"].to_numpy(dtype=object),
-        "lost_method": lost["lost_method"].to_numpy(dtype=object),
-        "synthetic_only_method": synthetic_only["synthetic_only_method"].to_numpy(dtype=object),
-        "tSNE1": coords[:, 0],
-        "tSNE2": coords[:, 1],
-    })
-    return result
 
 
 def plot_edge_status_examples(
@@ -1292,7 +873,7 @@ def plot_figure4_edge_status_matrices(
     fig.legend(
         handles=legend_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.018),
+        bbox_to_anchor=(0.5, 0.060),
         ncol=4,
         frameon=False,
         fontsize=9.2,
@@ -1308,7 +889,7 @@ def plot_figure4_edge_status_matrices(
     #     fontsize=15.5,
     #     weight="semibold",
     # )
-    fig.subplots_adjust(left=0.066, right=0.968, top=0.925, bottom=0.118)
+    fig.subplots_adjust(left=0.066, right=0.968, top=0.925, bottom=0.140)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -1745,6 +1326,61 @@ def _cluster_blob_geometry(coords, clusters):
 def _draw_neighborhood_blobs(ax, blob_geometry, summary, palette, show_feature_names=False):
     group_rows = []
     summary_by_cluster = summary.set_index("cluster_id")
+    all_centers = np.asarray([geom["center"] for geom in blob_geometry], dtype=float)
+    layout_center = all_centers.mean(axis=0) if len(all_centers) else np.zeros(2)
+    layout_span = np.ptp(all_centers, axis=0).max() if len(all_centers) > 1 else 1.0
+    label_offset = max(float(layout_span) * 0.035, 0.18)
+    placed_label_boxes = []
+
+    def _estimate_label_box(label, xy):
+        lines = [line for line in str(label).split("\n") if line]
+        max_chars = max((len(line) for line in lines), default=1)
+        width = max(float(layout_span) * 0.0105 * max_chars, 0.42)
+        height = max(float(layout_span) * 0.040 * max(len(lines), 1), 0.28)
+        x, y = float(xy[0]), float(xy[1])
+        return (x - width / 2.0, x + width / 2.0, y - height / 2.0, y + height / 2.0)
+
+    def _overlap_area(box_a, box_b):
+        x_overlap = max(0.0, min(box_a[1], box_b[1]) - max(box_a[0], box_b[0]))
+        y_overlap = max(0.0, min(box_a[3], box_b[3]) - max(box_a[2], box_b[2]))
+        return x_overlap * y_overlap
+
+    def _label_position(center, blob, cluster_id, label):
+        center = np.asarray(center, dtype=float)
+        radius = float(np.max(np.linalg.norm(np.asarray(blob) - center, axis=1))) if len(blob) else 0.0
+        outward = center - layout_center
+        norm = float(np.linalg.norm(outward))
+        if norm <= 1e-9:
+            angle = (cluster_id - 1) * (2.0 * np.pi / max(len(blob_geometry), 1))
+            outward = np.asarray([np.cos(angle), np.sin(angle)])
+        else:
+            outward = outward / norm
+
+        base_directions = [
+            outward,
+            np.asarray([1.0, 0.0]),
+            np.asarray([-1.0, 0.0]),
+            np.asarray([0.0, 1.0]),
+            np.asarray([0.0, -1.0]),
+            np.asarray([1.0, 1.0]) / np.sqrt(2.0),
+            np.asarray([-1.0, 1.0]) / np.sqrt(2.0),
+            np.asarray([1.0, -1.0]) / np.sqrt(2.0),
+            np.asarray([-1.0, -1.0]) / np.sqrt(2.0),
+        ]
+        candidates = []
+        for distance_scale in (1.0, 1.25, 1.55):
+            distance = radius + label_offset * distance_scale
+            for direction_rank, direction in enumerate(base_directions):
+                direction = np.asarray(direction, dtype=float)
+                direction = direction / max(float(np.linalg.norm(direction)), 1e-9)
+                xy = center + direction * distance
+                box = _estimate_label_box(label, xy)
+                overlap = sum(_overlap_area(box, placed) for placed in placed_label_boxes)
+                away_penalty = max(0.0, 1.0 - float(np.dot(direction, outward)))
+                cost = overlap * 1000.0 + distance_scale * 0.8 + direction_rank * 0.05 + away_penalty
+                candidates.append((cost, xy, box, direction))
+        return min(candidates, key=lambda item: item[0])
+
     for geom in blob_geometry:
         cluster_id = int(geom["cluster_id"])
         idx = geom["feature_indices"]
@@ -1771,23 +1407,50 @@ def _draw_neighborhood_blobs(ax, blob_geometry, summary, palette, show_feature_n
             alpha=0.82,
             zorder=2,
         ))
-        support = int(row.get("n_features_matching_method", len(idx)))
-        label = f"{method}\n{support}/{len(idx)} features"
-        if show_feature_names and row.get("prominent_features"):
-            label = f"{label}\n{row['prominent_features']}"
-        ax.text(
-            center[0],
-            center[1],
-            label,
-            ha="center",
-            va="center",
-            fontsize=7.1,
-            weight="semibold",
-            color=color,
-            zorder=5,
-            linespacing=1.03,
-            bbox=dict(facecolor="white", edgecolor="none", alpha=0.76, pad=1.25),
-        )
+        prominent_features = str(row.get("prominent_features", "")).strip()
+        if show_feature_names and prominent_features:
+            label = prominent_features.replace(", ", "\n")
+            _, label_xy, label_box, direction = _label_position(center, blob, cluster_id, label)
+            placed_label_boxes.append(label_box)
+            ax.update_datalim(label_xy.reshape(1, 2))
+            ax.autoscale_view()
+            ax.annotate(
+                label,
+                xy=center,
+                xytext=label_xy,
+                ha="center",
+                va="center",
+                fontsize=7.1,
+                weight="semibold",
+                color=color,
+                zorder=6,
+                linespacing=1.03,
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.78, pad=1.05),
+                arrowprops=dict(
+                    arrowstyle="-",
+                    color=color,
+                    linewidth=1.0,
+                    alpha=0.78,
+                    shrinkA=1.0,
+                    shrinkB=3.0,
+                ),
+            )
+        else:
+            support = int(row.get("n_features_matching_method", len(idx)))
+            label = f"{method}\n{support}/{len(idx)} features"
+            ax.text(
+                center[0],
+                center[1],
+                label,
+                ha="center",
+                va="center",
+                fontsize=7.1,
+                weight="semibold",
+                color=color,
+                zorder=5,
+                linespacing=1.03,
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.76, pad=1.25),
+            )
         extra = {
             key: value
             for key, value in row.to_dict().items()
@@ -2232,13 +1895,57 @@ def plot_figure4_cluster_summary_grid(
         method_order=method_order,
     )
 
-    fig, axes = plt.subplots(
-        len(dataset_order),
-        3,
-        figsize=(13.8, 4.25 * len(dataset_order)),
+    fig = plt.figure(
+        figsize=(14.4, 4.35 * len(dataset_order) + 1.15),
         constrained_layout=False,
-        squeeze=False,
     )
+    gs = fig.add_gridspec(
+        len(dataset_order) + 1,
+        4,
+        width_ratios=[0.34, 1.0, 1.0, 1.0],
+        height_ratios=[0.18] + [1.0] * len(dataset_order),
+        wspace=0.08,
+        hspace=0.20,
+    )
+
+    corner_ax = fig.add_subplot(gs[0, 0])
+    corner_ax.axis("off")
+
+    column_headers = ["Preserved", "Lost", "Synthetic-only"]
+    for col, header in enumerate(column_headers, start=1):
+        header_ax = fig.add_subplot(gs[0, col])
+        header_ax.axis("off")
+        header_ax.text(
+            0.5,
+            0.5,
+            header,
+            ha="center",
+            va="center",
+            fontsize=13.2,
+            weight="heavy",
+            color="#222222",
+            transform=header_ax.transAxes,
+        )
+
+    plot_axes = np.empty((len(dataset_order), 3), dtype=object)
+    for row, dataset in enumerate(dataset_order, start=1):
+        label_ax = fig.add_subplot(gs[row, 0])
+        label_ax.axis("off")
+        label_ax.text(
+            0.5,
+            0.5,
+            dataset,
+            ha="center",
+            va="center",
+            rotation=90,
+            fontsize=13.8,
+            weight="heavy",
+            color="#222222",
+            transform=label_ax.transAxes,
+        )
+        for col in range(3):
+            plot_axes[row - 1, col] = fig.add_subplot(gs[row, col + 1])
+
     panel_letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     panel_idx = 0
     group_summaries = []
@@ -2266,7 +1973,7 @@ def plot_figure4_cluster_summary_grid(
         blob_geometry = _cluster_blob_geometry(coords, clusters)
 
         preserve_group_summary = _draw_feature_preservation_tsne_panel(
-            axes[row, 0],
+            plot_axes[row, 0],
             coords,
             real_edges,
             real_partial,
@@ -2282,7 +1989,7 @@ def plot_figure4_cluster_summary_grid(
             cluster_feature_label_top=cluster_feature_label_top,
         )
         lost_group_summary = _draw_lost_tsne_panel(
-            axes[row, 1],
+            plot_axes[row, 1],
             coords,
             lost,
             feature_scores,
@@ -2295,7 +2002,7 @@ def plot_figure4_cluster_summary_grid(
             cluster_feature_label_top=cluster_feature_label_top,
         )
         synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
-            axes[row, 2],
+            plot_axes[row, 2],
             coords,
             feature_scores,
             clusters,
@@ -2313,8 +2020,9 @@ def plot_figure4_cluster_summary_grid(
         ]
         for col, (summary, mode) in enumerate(summaries):
             panel = panel_letters[panel_idx]
-            axes[row, col].set_title(
-                f"{panel}. {dataset}: {mode}",
+            plot_axes[row, col].set_title(
+                panel,
+                loc="left",
                 fontsize=10.6,
                 weight="semibold",
                 pad=7,
@@ -2329,7 +2037,7 @@ def plot_figure4_cluster_summary_grid(
     fig.legend(
         handles=handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.985),
+        bbox_to_anchor=(0.55, 0.86),
         ncol=len(method_order),
         frameon=False,
         fontsize=8.8,
@@ -2337,16 +2045,16 @@ def plot_figure4_cluster_summary_grid(
         handletextpad=0.45,
         columnspacing=1.15,
     )
-    fig.text(
-        0.5,
-        0.965,
-        "Cluster-level feature summaries on Graphical Lasso t-SNE layouts",
-        ha="center",
-        va="top",
-        fontsize=13.2,
-        weight="semibold",
-    )
-    fig.subplots_adjust(left=0.035, right=0.992, top=0.925, bottom=0.035, wspace=0.08, hspace=0.30)
+    # fig.text(
+    #     0.5,
+    #     0.988,
+    #     "Cluster-level feature summaries on Graphical Lasso t-SNE layouts",
+    #     ha="center",
+    #     va="top",
+    #     fontsize=13.2,
+    #     weight="semibold",
+    # )
+    fig.subplots_adjust(left=0.045, right=0.992, top=0.895, bottom=0.035)
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 

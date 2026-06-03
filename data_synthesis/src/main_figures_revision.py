@@ -1254,7 +1254,6 @@ from src.figure4_neighborhood import (
     plot_figure4_cluster_summary_grid,
     plot_figure4_tsne_edge_supplement,
     plot_edge_status_examples,
-    plot_combined_edge_status_and_glasso_tsne,
 )
 
 
@@ -1289,23 +1288,6 @@ def _get_figure4_precision_inputs(seed=SEED, cvae_epochs=CVAE_EPOCHS):
     return figure4_supp_real_data, figure4_supp_synthetic_data, figure4_supp_feature_names
 
 
-def plot_figure4_combined_edge_status(dataset_name="HIV", threshold=1e-7, cluster_feature_label_top=0):
-    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
-        seed=SEED, cvae_epochs=CVAE_EPOCHS
-    )
-    result = plot_combined_edge_status_and_glasso_tsne(
-        real_data=real_data,
-        synthetic_data=synthetic_data,
-        feature_names=feature_name_map,
-        alphas=FIGURE4_ALPHAS,
-        dataset_order=DATASET_ORDER,
-        method_order=METHOD_ORDER,
-        exemplar_ds=dataset_name,
-        threshold=threshold,
-        seed=SEED,
-        cluster_feature_label_top=cluster_feature_label_top,
-    )
-    return result
 
 
 def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None):
@@ -1346,7 +1328,11 @@ def plot_figure4_tsne_analysis_supplement(dataset_name="HIV", threshold=1e-7, sa
     return result
 
 
-def plot_figure4_cluster_summary_all_datasets(threshold=1e-7, save_path=None):
+def plot_figure4_cluster_summary_all_datasets(
+    threshold=1e-7,
+    cluster_feature_label_top=0,
+    save_path=None,
+):
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
@@ -1358,6 +1344,7 @@ def plot_figure4_cluster_summary_all_datasets(threshold=1e-7, save_path=None):
         dataset_order=["HIV", "Diabetes", "Breast Cancer"],
         method_order=METHOD_ORDER,
         threshold=threshold,
+        cluster_feature_label_top=cluster_feature_label_top,
         seed=SEED,
         save_path=save_path,
     )
@@ -1373,7 +1360,7 @@ def display_figure_once(fig):
 
 
 def display_result_once(result):
-    """ This codebase sucks"""
+    """Display a Figure4Result-like object once in notebooks."""
     display_figure_once(result.fig)
     return result
 
@@ -1383,9 +1370,8 @@ def build_figure4_supplemental_figures_inline(
     synthetic_data,
     feature_names,
     seed=SEED,
-    cluster_feature_label_top=0,
 ):
-    """Build Figure 4 supplemental displays without writing image/CSV exports."""
+    """Build the inline HIV edge-status reading example without writing exports."""
     examples_result = plot_edge_status_examples(
         real_data=real_data,
         synthetic_data=synthetic_data,
@@ -1398,23 +1384,8 @@ def build_figure4_supplemental_figures_inline(
     )
 
     results = {"HIV examples": examples_result}
-    metrics = [examples_result.metrics.assign(figure_dataset="HIV examples")]
-    for dataset in ["Breast Cancer", "Diabetes"]:
-        result = plot_combined_edge_status_and_glasso_tsne(
-            real_data=real_data,
-            synthetic_data=synthetic_data,
-            feature_names=feature_names,
-            alphas=FIGURE4_ALPHAS,
-            dataset_order=DATASET_ORDER,
-            method_order=METHOD_ORDER,
-            exemplar_ds=dataset,
-            seed=seed,
-            save_path=None,
-            cluster_feature_label_top=cluster_feature_label_top,
-        )
-        results[dataset] = result
-        metrics.append(result.metrics.assign(figure_dataset=dataset))
-    return results, pd.concat(metrics, ignore_index=True)
+    metrics = examples_result.metrics.assign(figure_dataset="HIV examples")
+    return results, metrics
 
 
 # Figure 5 helpers
