@@ -1,0 +1,19 @@
+dataset,representation,metric,linkage,requested_k,actual_k,largest_cluster,cluster_sizes,silhouette,ari_to_signed_cosine
+HIV,signed,euclidean,average,7,7,55,"55,2,2,1,1,1,1",0.06904034027097815,0.01537898378179875
+HIV,signed,cosine,average,7,7,15,"15,15,14,8,6,3,2",0.19385629107821656,1.0
+HIV,signed,correlation,average,7,7,23,"23,17,11,9,1,1,1",0.12516760949421107,0.5737815314683352
+HIV,absolute,euclidean,average,7,7,55,"55,2,2,1,1,1,1",0.06913909770434527,0.01537898378179875
+HIV,absolute,cosine,average,7,7,15,"15,15,14,8,6,3,2",0.19371861639954938,1.0
+HIV,absolute,correlation,average,7,7,15,"15,15,14,8,6,3,2",0.19686840623360108,1.0
+Breast Cancer,signed,euclidean,average,7,7,11,"11,6,5,3,2,2,1",0.19032740469180562,0.7499768239547604
+Breast Cancer,signed,cosine,average,7,7,8,"8,6,5,4,3,2,2",0.3347364181939175,1.0
+Breast Cancer,signed,correlation,average,7,7,7,"7,6,4,4,4,3,2",0.32643450887912917,0.8094027954256671
+Breast Cancer,absolute,euclidean,average,7,7,11,"11,6,5,3,2,2,1",0.19032740469180562,0.7499768239547604
+Breast Cancer,absolute,cosine,average,7,7,8,"8,6,5,4,3,2,2",0.3347364181939175,1.0
+Breast Cancer,absolute,correlation,average,7,7,7,"7,6,4,4,4,3,2",0.32643450887912917,0.8094027954256671
+Diabetes,signed,euclidean,average,4,4,3,"3,2,2,1",0.27980375605428986,1.0
+Diabetes,signed,cosine,average,4,4,3,"3,2,2,1",0.47618289771260164,1.0
+Diabetes,signed,correlation,average,4,4,3,"3,2,2,1",0.4117963554380174,1.0
+Diabetes,absolute,euclidean,average,4,4,3,"3,2,2,1",0.26551738022519855,1.0
+Diabetes,absolute,cosine,average,4,4,3,"3,2,2,1",0.4251613591896064,1.0
+Diabetes,absolute,correlation,average,4,4,3,"3,2,2,1",0.37630824885558745,0.5130434782608696

@@ -1342,6 +1342,7 @@ def plot_figure4_cluster_summary_all_datasets(
     cluster_metric="euclidean",
     cluster_linkage="average",
     cluster_blob_pad=0.52,
+    cluster_boundary_style="blob",
     cluster_fill_alpha=0.16,
     save_path=None,
 ):
@@ -1360,6 +1361,7 @@ def plot_figure4_cluster_summary_all_datasets(
         cluster_metric=cluster_metric,
         cluster_linkage=cluster_linkage,
         cluster_blob_pad=cluster_blob_pad,
+        cluster_boundary_style=cluster_boundary_style,
         cluster_fill_alpha=cluster_fill_alpha,
         seed=SEED,
         save_path=save_path,

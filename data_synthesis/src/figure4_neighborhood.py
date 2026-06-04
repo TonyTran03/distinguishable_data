@@ -11,6 +11,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Polygon
 from scipy.cluster import hierarchy
+from scipy.spatial import ConvexHull
 from scipy.spatial.distance import pdist, squareform
 from sklearn import covariance
 from sklearn.cluster import KMeans
@@ -1310,15 +1311,32 @@ def _blob_polygon(points, pad=0.52, n_angles=96):
     return np.asarray(vertices, dtype=float)
 
 
-def _cluster_blob_geometry(coords, clusters, pad=0.52):
+def _convex_hull_polygon(points):
+    points = np.asarray(points, dtype=float)
+    if len(points) <= 2:
+        return points
+    try:
+        hull = ConvexHull(points)
+        return points[hull.vertices]
+    except Exception:
+        return points
+
+
+def _cluster_blob_geometry(coords, clusters, pad=0.52, boundary_style="blob"):
     geometry = []
     for cluster_id, idx in enumerate(clusters, start=1):
         points = coords[idx]
+        if boundary_style == "none":
+            boundary = np.empty((0, 2), dtype=float)
+        elif boundary_style == "convex_hull":
+            boundary = _convex_hull_polygon(points)
+        else:
+            boundary = _blob_polygon(points, pad=pad)
         geometry.append({
             "cluster_id": int(cluster_id),
             "feature_indices": np.asarray(idx, dtype=int),
             "center": points.mean(axis=0),
-            "blob": _blob_polygon(points, pad=pad),
+            "blob": boundary,
         })
     return geometry
 
@@ -1330,6 +1348,7 @@ def _draw_neighborhood_blobs(
     palette,
     show_feature_names=False,
     cluster_fill_alpha=0.16,
+    show_feature_support=False,
 ):
     group_rows = []
     summary_by_cluster = summary.set_index("cluster_id")
@@ -1396,7 +1415,7 @@ def _draw_neighborhood_blobs(
         color = palette.get(method, "#888888")
         center = geom["center"]
         blob = geom["blob"]
-        if cluster_fill_alpha > 0:
+        if len(blob) and cluster_fill_alpha > 0:
             ax.add_patch(Polygon(
                 blob,
                 closed=True,
@@ -1406,18 +1425,22 @@ def _draw_neighborhood_blobs(
                 alpha=cluster_fill_alpha,
                 zorder=0,
             ))
-        ax.add_patch(Polygon(
-            blob,
-            closed=True,
-            facecolor="none",
-            edgecolor=color,
-            linewidth=1.55 if cluster_fill_alpha <= 0 else 1.2,
-            alpha=0.90 if cluster_fill_alpha <= 0 else 0.82,
-            zorder=2,
-        ))
+        if len(blob):
+            ax.add_patch(Polygon(
+                blob,
+                closed=True,
+                facecolor="none",
+                edgecolor=color,
+                linewidth=1.55 if cluster_fill_alpha <= 0 else 1.2,
+                alpha=0.90 if cluster_fill_alpha <= 0 else 0.82,
+                zorder=2,
+            ))
         prominent_features = str(row.get("prominent_features", "")).strip()
         if show_feature_names and prominent_features:
             label = prominent_features.replace(", ", "\n")
+            if show_feature_support:
+                support = int(row.get("n_features_matching_method", len(idx)))
+                label = f"{label}\n{method}: {support}/{len(idx)} features"
             _, label_xy, label_box, direction = _label_position(center, blob, cluster_id, label)
             placed_label_boxes.append(label_box)
             ax.update_datalim(label_xy.reshape(1, 2))
@@ -1560,6 +1583,7 @@ def _draw_feature_preservation_tsne_panel(
     draw_backbone=False,
     cluster_feature_label_top=0,
     cluster_fill_alpha=0.16,
+    show_feature_support=False,
 ):
     winners = winners.sort_values("feature_index")
     cluster_summary = _cluster_method_summary(
@@ -1568,7 +1592,7 @@ def _draw_feature_preservation_tsne_panel(
         method_order,
         mode="preserve",
         feature_names=feature_names,
-        top_features=max(2, cluster_feature_label_top),
+        top_features=max(0, int(cluster_feature_label_top)),
     )
     group_summary = _draw_neighborhood_blobs(
         ax,
@@ -1577,6 +1601,7 @@ def _draw_feature_preservation_tsne_panel(
         palette,
         show_feature_names=cluster_feature_label_top > 0,
         cluster_fill_alpha=cluster_fill_alpha,
+        show_feature_support=show_feature_support,
     )
 
     if draw_backbone and real_edges:
@@ -1620,6 +1645,7 @@ def _draw_lost_tsne_panel(
     feature_names=None,
     cluster_feature_label_top=0,
     cluster_fill_alpha=0.16,
+    show_feature_support=False,
 ):
     lost = lost.sort_values("feature_index")
     cluster_summary = _cluster_method_summary(
@@ -1628,7 +1654,7 @@ def _draw_lost_tsne_panel(
         method_order,
         mode="lost",
         feature_names=feature_names,
-        top_features=max(2, cluster_feature_label_top),
+        top_features=max(0, int(cluster_feature_label_top)),
     )
     group_summary = _draw_neighborhood_blobs(
         ax,
@@ -1637,6 +1663,7 @@ def _draw_lost_tsne_panel(
         palette,
         show_feature_names=cluster_feature_label_top > 0,
         cluster_fill_alpha=cluster_fill_alpha,
+        show_feature_support=show_feature_support,
     )
 
     dot_sizes = _feature_prominence_sizes_from_scores(feature_scores, coords.shape[0])
@@ -1663,6 +1690,7 @@ def _draw_synthetic_only_tsne_panel(
     feature_names=None,
     cluster_feature_label_top=0,
     cluster_fill_alpha=0.16,
+    show_feature_support=False,
 ):
     cluster_summary = _cluster_method_summary(
         feature_scores,
@@ -1670,7 +1698,7 @@ def _draw_synthetic_only_tsne_panel(
         method_order,
         mode="synthetic_only",
         feature_names=feature_names,
-        top_features=max(2, cluster_feature_label_top),
+        top_features=max(0, int(cluster_feature_label_top)),
     )
     group_summary = _draw_neighborhood_blobs(
         ax,
@@ -1679,6 +1707,7 @@ def _draw_synthetic_only_tsne_panel(
         palette,
         show_feature_names=cluster_feature_label_top > 0,
         cluster_fill_alpha=cluster_fill_alpha,
+        show_feature_support=show_feature_support,
     )
 
     dot_sizes = _feature_prominence_sizes_from_scores(feature_scores, coords.shape[0])
@@ -1949,9 +1978,11 @@ def plot_figure4_cluster_summary_grid(
     cluster_metric="euclidean",
     cluster_linkage="average",
     cluster_blob_pad=0.52,
+    cluster_boundary_style="blob",
     cluster_fill_alpha=0.16,
     palette=None,
     cluster_feature_label_top=0,
+    show_feature_support=False,
     save_path=None,
 ):
     """Main-text 3x3 cluster-summary grid across datasets."""
@@ -2048,7 +2079,12 @@ def plot_figure4_cluster_summary_grid(
             linkage_method=cluster_linkage,
         )
         clusters = _clusters_from_labels(cluster_labels)
-        blob_geometry = _cluster_blob_geometry(coords, clusters, pad=cluster_blob_pad)
+        blob_geometry = _cluster_blob_geometry(
+            coords,
+            clusters,
+            pad=cluster_blob_pad,
+            boundary_style=cluster_boundary_style,
+        )
 
         preserve_group_summary = _draw_feature_preservation_tsne_panel(
             plot_axes[row, 0],
@@ -2066,6 +2102,7 @@ def plot_figure4_cluster_summary_grid(
             draw_backbone=False,
             cluster_feature_label_top=cluster_feature_label_top,
             cluster_fill_alpha=cluster_fill_alpha,
+            show_feature_support=show_feature_support,
         )
         lost_group_summary = _draw_lost_tsne_panel(
             plot_axes[row, 1],
@@ -2080,6 +2117,7 @@ def plot_figure4_cluster_summary_grid(
             feature_names=names,
             cluster_feature_label_top=cluster_feature_label_top,
             cluster_fill_alpha=cluster_fill_alpha,
+            show_feature_support=show_feature_support,
         )
         synthetic_only_group_summary = _draw_synthetic_only_tsne_panel(
             plot_axes[row, 2],
@@ -2093,6 +2131,7 @@ def plot_figure4_cluster_summary_grid(
             feature_names=names,
             cluster_feature_label_top=cluster_feature_label_top,
             cluster_fill_alpha=cluster_fill_alpha,
+            show_feature_support=show_feature_support,
         )
         summaries = [
             (preserve_group_summary, "preserve"),
