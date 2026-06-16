@@ -1,0 +1,13 @@
+Dataset,Method,AUC,TSTR F1,|TRTR-TSTR|
+HIV,Bootstrap,0.71,0.97,0.01
+HIV,Column-wise,0.86,0.99,0.02
+HIV,GMM,1.00,0.98,0.01
+HIV,CVAE,1.00,0.98,0.01
+Breast Cancer,Bootstrap,0.71,0.99,0.02
+Breast Cancer,Column-wise,1.00,0.96,0.01
+Breast Cancer,GMM,0.99,0.96,0.01
+Breast Cancer,CVAE,0.82,0.97,0.01
+Diabetes,Bootstrap,0.72,0.86,0.23
+Diabetes,Column-wise,0.79,0.67,0.04
+Diabetes,GMM,0.98,0.63,0.01
+Diabetes,CVAE,0.99,0.63,0.01
