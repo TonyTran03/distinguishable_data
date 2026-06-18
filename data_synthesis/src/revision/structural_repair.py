@@ -9,13 +9,17 @@ from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
-from scipy.stats import norm, rankdata
+from scipy.stats import ks_2samp, norm, rankdata
 from sklearn.model_selection import train_test_split
 
 from src.revision.common import METHOD_COLORS, NEUTRAL, SEED
 from src.revision.figure4_graphical_lasso import FIGURE4_ALPHAS
 from src.revision.figure4_graphical_lasso_plots import (
+    STATUS_COLORS,
+    build_edge_status_matrix,
     fit_glasso_precision,
+    get_edge_set,
+    get_real_structure_order,
     precision_to_partial_corr,
 )
 from src.revision.stats import one_run_origin_auc
@@ -78,6 +82,92 @@ def nearest_correlation(matrix, eigen_floor=1e-6):
     projected = (projected + projected.T) / 2
     np.fill_diagonal(projected, 1.0)
     return projected
+
+
+def precision_to_correlation(precision):
+    """Convert a precision matrix to its implied correlation matrix."""
+    covariance = np.linalg.pinv(np.asarray(precision, dtype=np.float64))
+    scale = np.sqrt(np.clip(np.diag(covariance), 1e-12, None))
+    correlation = covariance / np.outer(scale, scale)
+    return nearest_correlation(correlation)
+
+
+def interpolate_correlation(source, target, strength):
+    """Interpolate between two correlation matrices."""
+    if not 0 <= strength <= 1:
+        raise ValueError("strength must be between 0 and 1.")
+    matrix = (1 - strength) * np.asarray(source) + strength * np.asarray(target)
+    return nearest_correlation(matrix)
+
+
+def _empirical_quantile_sample(reference, probabilities):
+    reference = _as_float_array(reference)
+    probabilities = np.asarray(probabilities, dtype=np.float64)
+    sampled = np.empty_like(probabilities)
+    for j in range(reference.shape[1]):
+        sampled[:, j] = np.quantile(
+            reference[:, j],
+            np.clip(probabilities[:, j], 1e-6, 1 - 1e-6),
+            method="linear",
+        )
+    return sampled
+
+
+def sample_gaussian_copula_marginals(
+    X_marginal_reference,
+    correlation,
+    latent_noise,
+):
+    """Generate rows with reference marginals and a chosen latent correlation."""
+    X_marginal_reference = _as_float_array(X_marginal_reference)
+    latent_noise = _as_float_array(latent_noise)
+    if latent_noise.shape[1] != X_marginal_reference.shape[1]:
+        raise ValueError("Latent noise and marginal reference feature counts differ.")
+    coloring = _matrix_power_psd(nearest_correlation(correlation), 0.5)
+    latent = latent_noise @ coloring
+    return _empirical_quantile_sample(X_marginal_reference, norm.cdf(latent))
+
+
+def sample_class_conditional_copula(
+    X_syn,
+    y_syn,
+    correlation,
+    seed,
+):
+    """Preserve synthetic class-conditional marginals while changing dependence."""
+    X_syn = _as_float_array(X_syn)
+    y_syn = np.asarray(y_syn, dtype=int)
+    rng = np.random.default_rng(seed)
+    generated = np.empty_like(X_syn)
+    for label in np.unique(y_syn):
+        indices = np.flatnonzero(y_syn == label)
+        latent_noise = rng.standard_normal((len(indices), X_syn.shape[1]))
+        generated[indices] = sample_gaussian_copula_marginals(
+            X_syn[indices],
+            correlation,
+            latent_noise,
+        )
+    return generated
+
+
+def class_conditional_marginal_ks(X_reference, y, X_candidate):
+    """Summarize class-conditional marginal differences with KS statistics."""
+    X_reference = _as_float_array(X_reference)
+    X_candidate = _as_float_array(X_candidate)
+    y = np.asarray(y, dtype=int)
+    values = []
+    for label in np.unique(y):
+        indices = np.flatnonzero(y == label)
+        for feature in range(X_reference.shape[1]):
+            values.append(
+                float(
+                    ks_2samp(
+                        X_reference[indices, feature],
+                        X_candidate[indices, feature],
+                    ).statistic
+                )
+            )
+    return float(np.mean(values)), float(np.max(values))
 
 
 def _rank_reorder(original, scores):
@@ -456,6 +546,365 @@ def run_graph_guided_repair_experiment(
     return results, pd.concat(edge_tables, ignore_index=True)
 
 
+def run_fixed_graph_repair_experiment(
+    dataset_name,
+    method,
+    X_real,
+    y_real,
+    X_syn,
+    y_syn,
+    feature_names=None,
+    doses=(0, 1, 5, 10, 20),
+    auc_repeats=20,
+    edge_threshold=1e-7,
+    changed_threshold=0.05,
+    repair_strength=1.0,
+    seed=SEED,
+):
+    """Repair full-data graph discrepancies and evaluate fresh RF splits.
+
+    The structural target is fixed once using the complete real and synthetic
+    matrices. Every AUC condition is then evaluated with the same repeated RF
+    train/test seeds, so differences are paired across interventions.
+    """
+    X_real = _as_float_array(X_real)
+    X_syn = _as_float_array(X_syn)
+    y_real = np.asarray(y_real, dtype=int)
+    y_syn = np.asarray(y_syn, dtype=int)
+    alpha = FIGURE4_ALPHAS[dataset_name]
+    edge_table = build_edge_discrepancy_table(
+        X_real,
+        X_syn,
+        feature_names=feature_names,
+        alpha=alpha,
+        edge_threshold=edge_threshold,
+        changed_threshold=changed_threshold,
+    )
+
+    maximum_dose = max(int(dose) for dose in doses)
+    full_target_pairs = select_target_pairs(edge_table, maximum_dose)
+    baseline_auc_values = _evaluate_auc_repeats(
+        X_real,
+        y_real,
+        X_syn,
+        y_syn,
+        repeats=auc_repeats,
+        seed=seed,
+    )
+    marginal_repaired = quantile_match_marginals(X_syn, X_real)
+    marginal_auc_values = _evaluate_auc_repeats(
+        X_real,
+        y_real,
+        marginal_repaired,
+        y_syn,
+        repeats=auc_repeats,
+        seed=seed,
+    )
+    rows = []
+
+    for dose in doses:
+        dose = int(dose)
+        target_pairs = full_target_pairs[:dose]
+        random_pairs = select_random_pairs(
+            edge_table, full_target_pairs, dose, seed + dose * 101
+        )
+        preserved_pairs = select_preserved_matched_pairs(
+            edge_table, target_pairs, dose
+        )
+        variants = {
+            "targeted": copula_edge_repair(
+                X_syn, X_syn, X_real, target_pairs, strength=repair_strength
+            ),
+            "random": copula_edge_repair(
+                X_syn, X_syn, X_real, random_pairs, strength=repair_strength
+            ),
+            "preserved_matched": copula_edge_repair(
+                X_syn, X_syn, X_real, preserved_pairs, strength=repair_strength
+            ),
+        }
+        condition_auc_values = {
+            "baseline": baseline_auc_values,
+            "marginal_only": marginal_auc_values,
+        }
+        for condition, repaired in variants.items():
+            condition_auc_values[condition] = (
+                baseline_auc_values
+                if dose == 0
+                else _evaluate_auc_repeats(
+                    X_real,
+                    y_real,
+                    repaired,
+                    y_syn,
+                    repeats=auc_repeats,
+                    seed=seed,
+                )
+            )
+
+        all_variants = {
+            "baseline": X_syn,
+            **variants,
+            "marginal_only": marginal_repaired,
+        }
+        for condition, repaired in all_variants.items():
+            condition_pairs = {
+                "targeted": target_pairs,
+                "random": random_pairs,
+                "preserved_matched": preserved_pairs,
+            }.get(condition, [])
+            pair_error_before = selected_pair_copula_error(
+                X_real, X_syn, condition_pairs
+            )
+            pair_error_after = selected_pair_copula_error(
+                X_real, repaired, condition_pairs
+            )
+            for repeat, auc in enumerate(condition_auc_values[condition]):
+                rows.append(
+                    {
+                        "dataset": dataset_name,
+                        "method": method,
+                        "dose": dose,
+                        "condition": condition,
+                        "auc_repeat": repeat,
+                        "auc": auc,
+                        "n_pairs": len(condition_pairs),
+                        "selected_pair_copula_error_before": pair_error_before,
+                        "selected_pair_copula_error_after": pair_error_after,
+                        "selected_pair_copula_error_reduction": (
+                            pair_error_before - pair_error_after
+                            if np.isfinite(pair_error_before)
+                            and np.isfinite(pair_error_after)
+                            else np.nan
+                        ),
+                        "marginal_multiset_error": (
+                            np.nan
+                            if condition == "marginal_only"
+                            else marginal_multiset_error(X_syn, repaired)
+                        ),
+                    }
+                )
+
+    results = pd.DataFrame(rows)
+    baseline = (
+        results[results["condition"] == "baseline"]
+        .set_index(["dose", "auc_repeat"])["auc"]
+        .rename("baseline_auc")
+    )
+    results = results.join(baseline, on=["dose", "auc_repeat"])
+    results["auc_reduction"] = results["baseline_auc"] - results["auc"]
+    return results, edge_table
+
+
+def run_structural_recovery_test(
+    dataset_name,
+    method,
+    X_real,
+    y_real,
+    X_syn,
+    y_syn,
+    strengths=(0.0, 0.25, 0.5, 0.75, 1.0),
+    copula_repeats=5,
+    auc_repeats=10,
+    seed=SEED,
+):
+    """Test whether recovering real conditional structure reduces origin AUC.
+
+    Synthetic class-conditional empirical marginals are held fixed as the
+    inverse-CDF reference. A Gaussian copula is sampled using dependence
+    matrices interpolated from the synthetic Graphical Lasso structure toward
+    either the correctly aligned real structure or a feature-permuted control.
+    """
+    X_real = _as_float_array(X_real)
+    X_syn = _as_float_array(X_syn)
+    y_real = np.asarray(y_real, dtype=int)
+    y_syn = np.asarray(y_syn, dtype=int)
+    alpha = FIGURE4_ALPHAS[dataset_name]
+
+    real_precision = fit_glasso_precision(X_real, alpha)
+    synthetic_precision = fit_glasso_precision(X_syn, alpha)
+    real_correlation = precision_to_correlation(real_precision)
+    synthetic_correlation = precision_to_correlation(synthetic_precision)
+
+    rng = np.random.default_rng(seed + 4049)
+    permutation = rng.permutation(X_real.shape[1])
+    permuted_real_correlation = real_correlation[np.ix_(permutation, permutation)]
+
+    original_auc = _evaluate_auc_repeats(
+        X_real,
+        y_real,
+        X_syn,
+        y_syn,
+        repeats=auc_repeats,
+        seed=seed,
+    )
+    rows = []
+
+    for copula_repeat in range(copula_repeats):
+        generation_seed = seed + copula_repeat * 7919
+        for strength in strengths:
+            strength = float(strength)
+            targeted_correlation = interpolate_correlation(
+                synthetic_correlation, real_correlation, strength
+            )
+            control_correlation = interpolate_correlation(
+                synthetic_correlation, permuted_real_correlation, strength
+            )
+            generated = {
+                "targeted_structure": sample_class_conditional_copula(
+                    X_syn, y_syn, targeted_correlation, generation_seed
+                ),
+                "permuted_structure_control": sample_class_conditional_copula(
+                    X_syn, y_syn, control_correlation, generation_seed
+                ),
+            }
+            for condition, X_adjusted in generated.items():
+                marginal_ks_mean, marginal_ks_max = class_conditional_marginal_ks(
+                    X_syn, y_syn, X_adjusted
+                )
+                auc_values = _evaluate_auc_repeats(
+                    X_real,
+                    y_real,
+                    X_adjusted,
+                    y_syn,
+                    repeats=auc_repeats,
+                    seed=seed,
+                )
+                adjusted_precision = fit_glasso_precision(X_adjusted, alpha)
+                adjusted_correlation = precision_to_correlation(adjusted_precision)
+                structural_error = float(
+                    np.linalg.norm(
+                        adjusted_correlation - real_correlation,
+                        ord="fro",
+                    )
+                )
+                for auc_repeat, auc in enumerate(auc_values):
+                    rows.append(
+                        {
+                            "dataset": dataset_name,
+                            "method": method,
+                            "condition": condition,
+                            "strength": strength,
+                            "copula_repeat": copula_repeat,
+                            "auc_repeat": auc_repeat,
+                            "auc": auc,
+                            "original_auc": original_auc[auc_repeat],
+                            "auc_reduction_from_original": original_auc[auc_repeat] - auc,
+                            "structural_error_to_real": structural_error,
+                            "marginal_ks_mean": marginal_ks_mean,
+                            "marginal_ks_max": marginal_ks_max,
+                            "generation_seed": generation_seed,
+                        }
+                    )
+
+    results = pd.DataFrame(rows)
+    copula_baseline = (
+        results[
+            (results["condition"] == "targeted_structure")
+            & np.isclose(results["strength"], 0.0)
+        ]
+        .set_index(["copula_repeat", "auc_repeat"])["auc"]
+        .rename("copula_baseline_auc")
+    )
+    results = results.join(
+        copula_baseline,
+        on=["copula_repeat", "auc_repeat"],
+    )
+    results["auc_reduction_from_copula_baseline"] = (
+        results["copula_baseline_auc"] - results["auc"]
+    )
+    return results, {
+        "real_precision": real_precision,
+        "synthetic_precision": synthetic_precision,
+        "real_correlation": real_correlation,
+        "synthetic_correlation": synthetic_correlation,
+        "permutation": permutation,
+    }
+
+
+def summarize_structural_recovery(results):
+    return (
+        results.groupby(["dataset", "method", "condition", "strength"], as_index=False)
+        .agg(
+            mean_auc=("auc", "mean"),
+            sd_auc=("auc", "std"),
+            mean_auc_reduction=("auc_reduction_from_copula_baseline", "mean"),
+            sd_auc_reduction=("auc_reduction_from_copula_baseline", "std"),
+            mean_structural_error=("structural_error_to_real", "mean"),
+            sd_structural_error=("structural_error_to_real", "std"),
+            mean_marginal_ks=("marginal_ks_mean", "mean"),
+            max_marginal_ks=("marginal_ks_max", "max"),
+            runs=("auc", "size"),
+        )
+        .sort_values(["condition", "strength"])
+    )
+
+
+def plot_structural_recovery(results, title=None):
+    """Plot dose-response for targeted and feature-permuted structure recovery."""
+    summary = summarize_structural_recovery(results)
+    colors = {
+        "targeted_structure": "#C62828",
+        "permuted_structure_control": "#777777",
+    }
+    labels = {
+        "targeted_structure": "Real structure alignment",
+        "permuted_structure_control": "Permuted-structure control",
+    }
+    fig, axes = plt.subplots(1, 3, figsize=(15.2, 4.5))
+    for condition in labels:
+        sub = summary[summary["condition"] == condition]
+        axes[0].errorbar(
+            sub["strength"],
+            sub["mean_auc"],
+            yerr=sub["sd_auc"],
+            marker="o",
+            capsize=3,
+            linewidth=2,
+            color=colors[condition],
+            label=labels[condition],
+        )
+        axes[1].errorbar(
+            sub["strength"],
+            sub["mean_auc_reduction"],
+            yerr=sub["sd_auc_reduction"],
+            marker="o",
+            capsize=3,
+            linewidth=2,
+            color=colors[condition],
+        )
+        axes[2].errorbar(
+            sub["strength"],
+            sub["mean_structural_error"],
+            yerr=sub["sd_structural_error"],
+            marker="o",
+            capsize=3,
+            linewidth=2,
+            color=colors[condition],
+        )
+    original_mean = results["original_auc"].mean()
+    axes[0].axhline(
+        original_mean,
+        color="#222222",
+        linestyle="--",
+        linewidth=1.3,
+        label=f"Original synthetic AUC ({original_mean:.3f})",
+    )
+    axes[0].axhline(0.5, color="#999999", linestyle=":", linewidth=1.1)
+    axes[0].set_ylabel("RF origin AUC")
+    axes[1].axhline(0, color="#999999", linestyle=":", linewidth=1.1)
+    axes[1].set_ylabel("AUC reduction from copula baseline")
+    axes[2].set_ylabel("Structural error to real (Frobenius)")
+    for ax in axes:
+        ax.set_xlabel("Dependence alignment strength")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", alpha=0.25)
+    axes[0].legend(frameon=False, fontsize=8.4)
+    if title:
+        fig.suptitle(title, fontsize=14, weight="bold")
+    fig.tight_layout()
+    return fig, summary
+
+
 def summarize_repair_results(results):
     return (
         results.groupby(["dataset", "method", "condition", "dose"], as_index=False)
@@ -475,7 +924,94 @@ def summarize_repair_results(results):
     )
 
 
-def plot_edge_discrepancy_map(edge_table, feature_names, title=None):
+def plot_figure4_compatible_edge_status(
+    X_real,
+    X_syn,
+    feature_names,
+    alpha,
+    method,
+    edge_threshold=1e-7,
+):
+    """Plot one method using exactly the main Figure 4 status definitions."""
+    real_partial = precision_to_partial_corr(fit_glasso_precision(X_real, alpha))
+    synthetic_partial = precision_to_partial_corr(fit_glasso_precision(X_syn, alpha))
+    real_edges = get_edge_set(real_partial, edge_threshold)
+    synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+    order = get_real_structure_order(real_partial)
+    status = build_edge_status_matrix(
+        real_edges, synthetic_edges, real_partial.shape[0]
+    )[np.ix_(order, order)]
+    status_counts = {
+        "preserved": len(real_edges & synthetic_edges),
+        "real_only": len(real_edges - synthetic_edges),
+        "synthetic_only": len(synthetic_edges - real_edges),
+    }
+    total_pairs = real_partial.shape[0] * (real_partial.shape[0] - 1) // 2
+    status_counts["absent"] = total_pairs - sum(status_counts.values())
+
+    categories = ["absent", "preserved", "real_only", "synthetic_only"]
+    fig, ax = plt.subplots(figsize=(7.2, 6.5))
+    ax.imshow(
+        status,
+        cmap=ListedColormap([STATUS_COLORS[category] for category in categories]),
+        vmin=-0.5,
+        vmax=3.5,
+        interpolation="nearest",
+        aspect="equal",
+    )
+    n_features = len(feature_names)
+    tick_step = 1 if n_features <= 12 else 5 if n_features <= 35 else 10
+    ticks = np.arange(0, n_features, tick_step)
+    labels = [str(index + 1) for index in ticks]
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
+    ax.set_xticklabels(labels, fontsize=7.8)
+    ax.set_yticklabels(labels, fontsize=7.8)
+    ax.tick_params(axis="both", length=2.2, width=0.8, pad=1.5)
+    top_ax = ax.secondary_xaxis("top")
+    top_ax.set_xticks(ticks)
+    top_ax.set_xticklabels(labels, fontsize=7.8)
+    top_ax.tick_params(length=2.2, width=0.8, pad=1.5)
+    ax.set_title(
+        f"{method}: main Figure 4-compatible edge status",
+        loc="left",
+        weight="bold",
+    )
+    handles = [
+        Patch(
+            facecolor=STATUS_COLORS["preserved"],
+            edgecolor="#333333",
+            label=f"Preserved edge (n={status_counts['preserved']})",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["real_only"],
+            edgecolor="#333333",
+            label=f"Real-only / lost (n={status_counts['real_only']})",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["synthetic_only"],
+            edgecolor="#333333",
+            label=f"Synthetic-only (n={status_counts['synthetic_only']})",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["absent"],
+            edgecolor="#C9CDD2",
+            label=f"Absent in both (n={status_counts['absent']})",
+        ),
+    ]
+    ax.legend(
+        handles=handles,
+        loc="upper left",
+        bbox_to_anchor=(0, -0.06),
+        ncol=2,
+        frameon=False,
+        fontsize=8.5,
+    )
+    fig.tight_layout()
+    return fig, order
+
+
+def plot_edge_discrepancy_map(edge_table, feature_names, title=None, order=None):
     """Plot preserved and erroneous Graphical Lasso relationships."""
     feature_names = list(feature_names)
     p = len(feature_names)
@@ -495,12 +1031,16 @@ def plot_edge_discrepancy_map(edge_table, feature_names, title=None):
         "reversed": "#8E44AD",
         "changed": "#46A5A5",
     }
+    category_counts = edge_table["category"].value_counts().to_dict()
     code = {category: index for index, category in enumerate(category_order)}
     matrix = np.zeros((p, p), dtype=int)
     for row in edge_table.itertuples():
         value = code[row.category]
         matrix[int(row.i), int(row.j)] = value
         matrix[int(row.j), int(row.i)] = value
+    order = np.arange(p, dtype=int) if order is None else np.asarray(order, dtype=int)
+    matrix = matrix[np.ix_(order, order)]
+    ordered_feature_names = [feature_names[index] for index in order]
 
     fig, ax = plt.subplots(figsize=(7.2, 6.5))
     ax.imshow(
@@ -511,20 +1051,32 @@ def plot_edge_discrepancy_map(edge_table, feature_names, title=None):
         interpolation="nearest",
     )
     if p <= 30:
-        labels = [str(name)[:24] for name in feature_names]
+        labels = [str(name)[:24] for name in ordered_feature_names]
         ax.set_xticks(np.arange(p))
         ax.set_yticks(np.arange(p))
         ax.set_xticklabels(labels, rotation=90, fontsize=6.5)
         ax.set_yticklabels(labels, fontsize=6.5)
     else:
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_xlabel(f"{p} features")
-        ax.set_ylabel(f"{p} features")
+        tick_step = 10
+        ticks = np.arange(0, p, tick_step)
+        labels = [str(index + 1) for index in ticks]
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(labels, fontsize=7.8)
+        ax.set_yticklabels(labels, fontsize=7.8)
+        ax.tick_params(axis="both", length=2.2, width=0.8, pad=1.5)
+        top_ax = ax.secondary_xaxis("top")
+        top_ax.set_xticks(ticks)
+        top_ax.set_xticklabels(labels, fontsize=7.8)
+        top_ax.tick_params(length=2.2, width=0.8, pad=1.5)
     ax.set_title(title or "Graphical Lasso edge-status map", loc="left", weight="bold")
     handles = [
-        Patch(facecolor=category_colors[category], edgecolor="#555555", label=category.replace("_", " "))
-        for category in category_order[1:]
+        Patch(
+            facecolor=category_colors[category],
+            edgecolor="#555555",
+            label=f"{category.replace('_', ' ')} (n={category_counts.get(category, 0)})",
+        )
+        for category in category_order
     ]
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False)
     fig.tight_layout()
