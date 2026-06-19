@@ -1,0 +1,31 @@
+dataset,method,edge_status,count
+HIV,Bootstrap,absent,1727
+HIV,Bootstrap,preserved,117
+HIV,Bootstrap,synthetic_only,40
+HIV,Bootstrap,real_only,35
+HIV,Bootstrap,changed,34
+HIV,CVAE,absent,1570
+HIV,CVAE,synthetic_only,197
+HIV,CVAE,preserved,79
+HIV,CVAE,changed,59
+HIV,CVAE,real_only,48
+Breast Cancer,Bootstrap,absent,333
+Breast Cancer,Bootstrap,preserved,87
+Breast Cancer,Bootstrap,real_only,7
+Breast Cancer,Bootstrap,synthetic_only,5
+Breast Cancer,Bootstrap,changed,3
+Breast Cancer,CVAE,absent,316
+Breast Cancer,CVAE,preserved,80
+Breast Cancer,CVAE,synthetic_only,22
+Breast Cancer,CVAE,changed,12
+Breast Cancer,CVAE,real_only,5
+Diabetes,Bootstrap,preserved,16
+Diabetes,Bootstrap,changed,5
+Diabetes,Bootstrap,absent,4
+Diabetes,Bootstrap,synthetic_only,3
+Diabetes,CVAE,changed,15
+Diabetes,CVAE,synthetic_only,5
+Diabetes,CVAE,preserved,4
+Diabetes,CVAE,absent,2
+Diabetes,CVAE,reversed,1
+Diabetes,CVAE,real_only,1
