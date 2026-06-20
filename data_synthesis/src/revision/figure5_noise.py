@@ -1,5 +1,7 @@
 """Figure 5: label-preserving noise sensitivity analysis."""
 
+import ast
+
 from src.revision.common import *
 from src.revision.stats import stratified_subsample
 from src.revision.cache import _read_cache, _write_cache
@@ -65,101 +67,85 @@ def compute_noise_auc_floor(noise_df):
         .rename(columns={"sep_mean": "min_auc"})
     )
 
-def _plot_noise_floor_panel(ax, noise_df, panel="D"):
+def _coerce_sep_values(values):
+    if isinstance(values, str):
+        values = ast.literal_eval(values)
+    return np.asarray(values, dtype=float)
+
+def _noise_percentile_band(m, lower=2.5, upper=97.5):
+    if "sep_values" not in m:
+        y = m["sep_mean"].to_numpy(dtype=float)
+        sd = m["sep_sd"].to_numpy(dtype=float)
+        return y - sd, y + sd
+    vals = [_coerce_sep_values(v) for v in m["sep_values"]]
+    lo = np.asarray([np.percentile(v, lower) for v in vals], dtype=float)
+    hi = np.asarray([np.percentile(v, upper) for v in vals], dtype=float)
+    return lo, hi
+
+def _plot_noise_method_panels(axes, noise_df, tick_positions, tick_labels):
     floor_df = compute_noise_auc_floor(noise_df)
-    x = np.arange(len(DATASET_ORDER))
-    offsets = np.linspace(-0.30, 0.30, len(METHOD_ORDER))
-    width = 0.16
+    x_max = noise_axis_position(float(np.max(noise_df["sigma"])))
 
-    for offset, method in zip(offsets, METHOD_ORDER):
-        vals = (
-            floor_df[floor_df["method"] == method]
-            .set_index("dataset")
-            .reindex(DATASET_ORDER)["min_auc"]
-            .to_numpy(dtype=float)
-        )
-        ax.bar(
-            x + offset, vals, width=width, color=METHOD_PASTELS[method], edgecolor=METHOD_COLORS[method],
-            linewidth=1.25, label=method, zorder=2,
-        )
-        ax.scatter(x + offset, vals, s=30, color=METHOD_COLORS[method], edgecolor="white", linewidth=0.7, zorder=3)
-        for xi, val in zip(x + offset, vals):
-            if np.isfinite(val):
-                ax.text(xi, val + 0.012, f"{val:.2f}", ha="center", va="bottom", fontsize=7.3, color="#333333")
+    for ax, method, panel in zip(axes, METHOD_ORDER, ["D1", "D2", "D3", "D4"]):
+        sub = noise_df[noise_df["method"] == method]
+        for ds in DATASET_ORDER:
+            m = sub[sub["dataset"] == ds].sort_values("sigma")
+            if m.empty:
+                continue
+            x = noise_axis_position(m["sigma"])
+            y = m["sep_mean"].to_numpy(dtype=float)
+            lo, hi = _noise_percentile_band(m)
+            ax.plot(
+                x,
+                y,
+                marker=DATASET_MARKERS[ds],
+                color=DATASET_COLORS[ds],
+                label=ds,
+                linewidth=2.0,
+                markersize=4.8,
+                zorder=3,
+            )
+            ax.fill_between(x, lo, hi, color=DATASET_COLORS[ds], alpha=0.10, linewidth=0, zorder=2)
 
-    ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
-    ax.set_xticks(x)
-    ax.set_xticklabels(DATASET_ORDER)
-    ax.set_ylim(0.45, max(1.02, float(np.nanmax(floor_df["min_auc"])) + 0.06))
-    ax.set_ylabel(r"$\min_{\sigma} \langle \mathrm{AUC} \rangle$")
-    ax.set_title("")
-    ax.text(
-        0.5, 1.14, "D. Minimum AUC across noise levels",
-        transform=ax.transAxes, ha="center", va="bottom",
-        fontsize=11.5, weight="semibold",
-    )
-    ax.text(
-        0.99, 0.92, "High minimum AUC = separability floor", transform=ax.transAxes,
-        ha="right", va="top", fontsize=8.6, color="#555555",
-    )
-    clean_axis(ax, grid_axis="y")
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(1.2)
-    ax.tick_params(labelsize=8.5, width=1.2, length=4)
+        ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.15)
+        ax.set_title(f"{panel}. {method}", color=METHOD_COLORS[method], weight="semibold", fontsize=11.5)
+        ax.set_xlabel("Noise (sigma)")
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels)
+        ax.set_xlim(noise_axis_position(0) - 0.05, x_max + 0.08)
+        ax.set_ylim(0.45, 1.03)
+        clean_axis(ax, grid_axis="y")
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.2)
+        ax.tick_params(labelsize=8.0, width=1.2, length=4, labelleft=True)
+
+    axes[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
     return floor_df
 
 def plot_figure5_noise(noise_df):
-    fig = plt.figure(figsize=(14.8, 8.0), constrained_layout=False)
-    gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 0.72], hspace=0.48, wspace=0.25)
-    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
-    floor_ax = fig.add_subplot(gs[1, :])
-    legend_handles = []
+    fig = plt.figure(figsize=(14.8, 3.7), constrained_layout=False)
+    gs = fig.add_gridspec(1, 4, wspace=0.34)
+    method_axes = [
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[0, 2]),
+        fig.add_subplot(gs[0, 3]),
+    ]
+    dataset_handles = []
     tick_sigmas = np.asarray(sorted(noise_df["sigma"].unique()), dtype=float)
     tick_sigmas = tick_sigmas[np.isin(tick_sigmas, [0, 0.1, 0.3, 0.5, 1.0, 1.5, 2.0])]
     tick_positions = noise_axis_position(tick_sigmas)
     tick_labels = [f"{s:g}" for s in tick_sigmas]
 
-    for ax, ds, panel in zip(axes, DATASET_ORDER, ["A", "B", "C"]):
-        sub = noise_df[noise_df["dataset"] == ds]
-        for method in METHOD_ORDER:
-            m = sub[sub["method"] == method].sort_values("sigma")
-            if m.empty:
-                continue
-            x = noise_axis_position(m["sigma"])
-            line, = ax.plot(x, m["sep_mean"], marker="o", color=METHOD_COLORS[method], label=method,
-                            linewidth=2.5, markersize=5.8)
-            ax.fill_between(x, m["sep_mean"] - m["sep_sd"], m["sep_mean"] + m["sep_sd"],
-                            color=METHOD_COLORS[method], alpha=0.12, linewidth=0)
-            if ax is axes[0]:
-                legend_handles.append(line)
-        ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.35)
-
-        ax.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", fontsize=13)
-        ax.set_xlabel("Noise (σ)")
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(tick_labels)
-        ax.set_xlim(noise_axis_position(0) - 0.05, noise_axis_position(float(np.max(noise_df["sigma"]))) + 0.08)
-        clean_axis(ax, grid_axis="y")
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(1.2)
-
-        ax.tick_params(labelsize=8.5, width=1.2, length=4, labelleft=True)
-        ax.text(
-            0.00, 1.08, panel,
-            transform=ax.transAxes,
-            fontsize=15,
-            weight="bold",
-            va="top",
-            ha="left"
-        )
-    axes[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    floor_df = _plot_noise_floor_panel(floor_ax, noise_df, "D")
-    fig.legend(legend_handles, METHOD_ORDER, loc="lower center", bbox_to_anchor=(0.5, 0.015), ncol=len(METHOD_ORDER),
-               frameon=True, facecolor="white", edgecolor="black", framealpha=0, borderpad=0.55)
+    floor_df = _plot_noise_method_panels(method_axes, noise_df, tick_positions, tick_labels)
+    for ds in DATASET_ORDER:
+        handle, = method_axes[0].plot([], [], marker=DATASET_MARKERS[ds], color=DATASET_COLORS[ds],
+                                      linewidth=2.0, markersize=4.8, label=ds)
+        dataset_handles.append(handle)
+    fig.legend(dataset_handles, DATASET_ORDER, loc="lower center", bbox_to_anchor=(0.5, 0.005), ncol=len(DATASET_ORDER),
+               frameon=True, facecolor="white", edgecolor="black", framealpha=0, borderpad=0.55, fontsize=8.6)
     # fig.suptitle("Noise sensitivity", y=0.98, fontsize=15, weight="semibold")
-    fig.subplots_adjust(left=0.1, right=0.99, top=0.91, bottom=0.13)
+    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.25)
     
     return fig, floor_df
