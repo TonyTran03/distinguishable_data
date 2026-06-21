@@ -1,5 +1,8 @@
 """Figure 2: PCA examples and real-vs-synthetic separability AUC."""
 
+import contextlib
+import io
+
 from src.revision.common import *
 from src.revision.stats import one_run_origin_auc
 
@@ -43,7 +46,6 @@ def plot_figure2_cvae_pca(datasets, seed=SEED, cvae_epochs=CVAE_EPOCHS):
         ax.legend(loc="upper left", frameon=True, facecolor="white", edgecolor="#BDBDBD",
                   framealpha=0.92, fontsize=7.8, handlelength=1.2, borderpad=0.35,
                   labelspacing=0.25, handletextpad=0.35)
-
         ax.tick_params(axis="both", colors="black", direction="out", width=1.2, length=4, labelsize=8.8)
         ax.grid(False)
         for spine in ax.spines.values():
@@ -79,7 +81,8 @@ def compute_auc_run_table(datasets, seed=SEED, repeats=AUC_REPEATS, cvae_epochs=
 def _plot_pca_panel(ax, ds, panel, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     data = require_datasets()[ds]
     X_real = np.asarray(data["X"], dtype=np.float32)
-    X_syn, _ = sample_synthetic(ds, data, "CVAE", seed=seed, cvae_epochs=cvae_epochs)
+    with contextlib.redirect_stdout(io.StringIO()):
+        X_syn, _ = sample_synthetic(ds, data, "CVAE", seed=seed, cvae_epochs=cvae_epochs)
     Xr, Xs = standardize_pair(X_real, X_syn)
     pca = PCA(n_components=2, random_state=seed).fit(Xr)
     Zr = pca.transform(Xr)
@@ -168,37 +171,19 @@ def _plot_auc_line_panel(ax, auc_runs, ds, panel):
     clean_axis(ax, grid_axis="y")
     add_panel_label(ax, panel)
 
-def plot_figure2_six_panel(auc_runs):
-    fig, axes = plt.subplots(2, 3, figsize=(13.8, 8.2))
-    panel_labels = [("A1", "A2"), ("B1", "B2"), ("C1", "C2")]
+def plot_figure2_six_panel(auc_runs=None):
+    fig, axes = plt.subplots(1, 3, figsize=(13.8, 4.0))
 
-    for col, ds in enumerate(DATASET_ORDER):
-        pca_ax = axes[0, col]
-        sep_ax = axes[1, col]
-        _plot_pca_panel(pca_ax, ds, panel_labels[col][0])
-        _plot_auc_violin_panel(sep_ax, auc_runs, ds, panel_labels[col][1])
+    for ax, ds, panel in zip(axes, DATASET_ORDER, ["A", "B", "C"]):
+        _plot_pca_panel(ax, ds, panel)
 
-        # Use one dataset header per column, so each PCA/separability pair reads as a unit.
-        pca_ax.set_title("")
-        sep_ax.set_title("RF separability", color=NEUTRAL, weight="bold", pad=8, fontsize=12.5)
+    fig.subplots_adjust(left=0.065, right=0.99, top=0.88, bottom=0.18, wspace=0.28)
+    return fig
 
-    # fig.suptitle("Synthetic data geometry and separability by dataset", y=0.99, fontsize=15, weight="semibold")
-    fig.subplots_adjust(left=0.065, right=0.99, top=0.83, bottom=0.10, wspace=0.34, hspace=0.38)
-
-    for col, ds in enumerate(DATASET_ORDER):
-        top_box = axes[0, col].get_position()
-        x_center = (top_box.x0 + top_box.x1) / 2
-        fig.text(
-            x_center,
-            0.845,
-            ds,
-            ha="center",
-            va="bottom",
-            fontsize=13.5,
-            weight="bold",
-            color=DATASET_COLORS[ds],
-        )
-
+def plot_figure2_single_pca(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+    fig, ax = plt.subplots(1, 1, figsize=(5.0, 4.4))
+    _plot_pca_panel(ax, dataset, "", seed=seed, cvae_epochs=cvae_epochs)
+    fig.subplots_adjust(left=0.15, right=0.97, top=0.90, bottom=0.16)
     return fig
 
 def plot_figure2_nine_panel(auc_runs):
