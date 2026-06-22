@@ -243,10 +243,10 @@ def plot_figure2_method_pca_grid(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     )
     x_min, x_max = np.nanmin(all_coords[:, 0]), np.nanmax(all_coords[:, 0])
     y_min, y_max = np.nanmin(all_coords[:, 1]), np.nanmax(all_coords[:, 1])
-    x_pad = max((x_max - x_min) * 0.22, 1e-6)
-    y_pad = max((y_max - y_min) * 0.22, 1e-6)
-    xlim = (x_min - x_pad, x_max + x_pad)
-    ylim = (y_min - y_pad, y_max + y_pad)
+    x_abs = max(abs(x_min), abs(x_max))
+    y_abs = max(abs(y_min), abs(y_max))
+    xlim = (-x_abs * 1.22, x_abs * 1.22)
+    ylim = (-y_abs * 1.22, y_abs * 1.22)
 
     for ax, method in zip(axes.flat, METHOD_ORDER):
         _plot_pca_panel(
@@ -271,10 +271,10 @@ def plot_figure2_method_pca_grid(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     for row in range(2):
         for col in range(2):
             ax = axes[row, col]
-            ax.set_xticks([0, 5, 10])
-            ax.set_yticks([0, 5, 10])
-            ax.set_xticklabels(["0", "5", "10"])
-            ax.set_yticklabels(["0", "5", "10"])
+            ax.set_xticks([-15,-10,-5,0, 5, 10,15])
+            ax.set_yticks([-15,-10,-5,0, 5, 10,15])
+            ax.set_xticklabels(["-15","-10","-5","0", "5", "10","15"])
+            ax.set_yticklabels(["-15","-10","-5","0", "5", "10","15"])
             ax.tick_params(
                 axis="x",
                 top=row == 0,
