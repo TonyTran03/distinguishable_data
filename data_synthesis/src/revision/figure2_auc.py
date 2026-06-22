@@ -78,45 +78,91 @@ def compute_auc_run_table(datasets, seed=SEED, repeats=AUC_REPEATS, cvae_epochs=
                 rows.append({"dataset": ds, "method": method, "run": r, "separability_auc": auc})
     return pd.DataFrame(rows)
 
-def _plot_pca_panel(ax, ds, panel, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+def _pca_projection(ds, method, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     data = require_datasets()[ds]
     X_real = np.asarray(data["X"], dtype=np.float32)
     with contextlib.redirect_stdout(io.StringIO()):
-        X_syn, _ = sample_synthetic(ds, data, "CVAE", seed=seed, cvae_epochs=cvae_epochs)
+        X_syn, _ = sample_synthetic(ds, data, method, seed=seed, cvae_epochs=cvae_epochs)
     Xr, Xs = standardize_pair(X_real, X_syn)
     pca = PCA(n_components=2, random_state=seed).fit(Xr)
     Zr = pca.transform(Xr)
     Zs = pca.transform(Xs)
+    return data, X_real, Zr, Zs, pca.explained_variance_ratio_
+
+
+def _plot_pca_panel(
+    ax,
+    ds,
+    panel,
+    seed=SEED,
+    cvae_epochs=CVAE_EPOCHS,
+    method="CVAE",
+    title=None,
+    synthetic_color=None,
+    show_axis_labels=True,
+    show_ticks=True,
+    show_legend=True,
+    variance_inside=False,
+    show_sample_text=True,
+    pca_payload=None,
+    xlim=None,
+    ylim=None,
+):
+    if pca_payload is None:
+        data, X_real, Zr, Zs, ev = _pca_projection(ds, method, seed=seed, cvae_epochs=cvae_epochs)
+    else:
+        data, X_real, Zr, Zs, ev = pca_payload
     rng = np.random.default_rng(seed)
     Zs_plot = Zs[rng.choice(len(Zs), size=700, replace=False)] if len(Zs) > 700 else Zs
+    syn_color = synthetic_color or DATASET_COLORS[ds]
 
     ax.scatter(Zr[:, 0], Zr[:, 1], s=8, marker="o", facecolors="none", alpha=0.58,
-               edgecolors="#8A8A8A", linewidths=0.55, label="Real data")
-    ax.scatter(Zs_plot[:, 0], Zs_plot[:, 1], s=8, marker="o", color=DATASET_COLORS[ds], alpha=0.74,
-               edgecolors="none", label="CVAE synthetic data")
+               edgecolors="#8A8A8A", linewidths=0.55, label=f"Real data ({ds})")
+    ax.scatter(Zs_plot[:, 0], Zs_plot[:, 1], s=8, marker="o", color=syn_color, alpha=0.74,
+               edgecolors="none", label=f"{method} synthetic data")
     add_confidence_ellipse(ax, Zr, "#8A8A8A", linewidth=1.8)
-    add_confidence_ellipse(ax, Zs, DATASET_COLORS[ds], linewidth=2.0)
+    add_confidence_ellipse(ax, Zs, syn_color, linewidth=2.0)
 
     all_z = np.vstack([Zr, Zs_plot])
     x_min, x_max = np.nanmin(all_z[:, 0]), np.nanmax(all_z[:, 0])
     y_min, y_max = np.nanmin(all_z[:, 1]), np.nanmax(all_z[:, 1])
-    ax.set_xlim(x_min - (x_max - x_min) * 0.24, x_max + (x_max - x_min) * 0.24)
-    ax.set_ylim(y_min - (y_max - y_min) * 0.24, y_max + (y_max - y_min) * 0.24)
+    if xlim is None:
+        xlim = (x_min - (x_max - x_min) * 0.24, x_max + (x_max - x_min) * 0.24)
+    if ylim is None:
+        ylim = (y_min - (y_max - y_min) * 0.24, y_max + (y_max - y_min) * 0.24)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
 
-    ev = pca.explained_variance_ratio_
-    ax.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", pad=8)
-    ax.set_xlabel(f"PC1 ({ev[0] * 100:.1f}%)")
-    ax.set_ylabel(f"PC2 ({ev[1] * 100:.1f}%)")
-    ax.text(0.045, 0.055, f"n={len(data['y'])}, p={X_real.shape[1]}", transform=ax.transAxes,
-            color=DATASET_COLORS[ds], fontsize=8.5, weight="bold", ha="left", va="bottom")
-    ax.legend(loc="upper left", frameon=True, facecolor="white", edgecolor="#BDBDBD",
-              framealpha=0.92, fontsize=7.8, handlelength=1.2, borderpad=0.35,
-              labelspacing=0.25, handletextpad=0.35)
+    ax.set_title(title if title is not None else ds, color=syn_color, weight="semibold", pad=5, fontsize=10.5)
+    if show_axis_labels:
+        ax.set_xlabel(f"PC1 ({ev[0] * 100:.1f}%)")
+        ax.set_ylabel(f"PC2 ({ev[1] * 100:.1f}%)")
+    else:
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+    if variance_inside:
+        ax.text(0.045, 0.060, f"PC1 {ev[0] * 100:.1f}%\nPC2 {ev[1] * 100:.1f}%", transform=ax.transAxes,
+                color=NEUTRAL, fontsize=7.8, ha="left", va="bottom",
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.72, pad=2.0))
+    if show_sample_text:
+        ax.text(0.045, 0.055, f"n={len(data['y'])}, p={X_real.shape[1]}", transform=ax.transAxes,
+                color=syn_color, fontsize=8.5, weight="bold", ha="left", va="bottom")
+    if show_legend:
+        legend = ax.legend(loc="upper left", bbox_to_anchor=(0.025, 0.975), frameon=True, facecolor="white", edgecolor="#BDBDBD",
+                           framealpha=0.92, fontsize=7.8, handlelength=1.2, borderpad=0.35,
+                           labelspacing=0.25, handletextpad=0.35, borderaxespad=0.35)
+        legend.get_texts()[0].set_color(DATASET_COLORS[ds])
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(1.2)
-    ax.tick_params(labelsize=8.5, width=1.2, length=4)
-    add_panel_label(ax, panel)
+    if show_ticks:
+        ax.tick_params(labelsize=8.5, width=1.2, length=4)
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.tick_params(length=0)
+    if panel:
+        add_panel_label(ax, panel)
 
 def _plot_auc_violin_panel(ax, auc_runs, ds, panel):
     sub = auc_runs[auc_runs["dataset"] == ds]
@@ -184,6 +230,80 @@ def plot_figure2_single_pca(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     fig, ax = plt.subplots(1, 1, figsize=(5.0, 4.4))
     _plot_pca_panel(ax, dataset, "", seed=seed, cvae_epochs=cvae_epochs)
     fig.subplots_adjust(left=0.15, right=0.97, top=0.90, bottom=0.16)
+    return fig
+
+def plot_figure2_method_pca_grid(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+    fig, axes = plt.subplots(2, 2, figsize=(6.25, 6.25), constrained_layout=False)
+    payloads = {
+        method: _pca_projection(dataset, method, seed=seed, cvae_epochs=cvae_epochs)
+        for method in METHOD_ORDER
+    }
+    all_coords = np.vstack(
+        [coords for _, _, Zr, Zs, _ in payloads.values() for coords in (Zr, Zs)]
+    )
+    x_min, x_max = np.nanmin(all_coords[:, 0]), np.nanmax(all_coords[:, 0])
+    y_min, y_max = np.nanmin(all_coords[:, 1]), np.nanmax(all_coords[:, 1])
+    x_pad = max((x_max - x_min) * 0.22, 1e-6)
+    y_pad = max((y_max - y_min) * 0.22, 1e-6)
+    xlim = (x_min - x_pad, x_max + x_pad)
+    ylim = (y_min - y_pad, y_max + y_pad)
+
+    for ax, method in zip(axes.flat, METHOD_ORDER):
+        _plot_pca_panel(
+            ax,
+            dataset,
+            "",
+            seed=seed,
+            cvae_epochs=cvae_epochs,
+            method=method,
+            title="",
+            synthetic_color=METHOD_COLORS[method],
+            show_axis_labels=False,
+            show_ticks=True,
+            show_legend=True,
+            variance_inside=False,
+            show_sample_text=False,
+            pca_payload=payloads[method],
+            xlim=xlim,
+            ylim=ylim,
+        )
+
+    for row in range(2):
+        for col in range(2):
+            ax = axes[row, col]
+            ax.set_xticks([0, 5, 10])
+            ax.set_yticks([0, 5, 10])
+            ax.set_xticklabels(["0", "5", "10"])
+            ax.set_yticklabels(["0", "5", "10"])
+            ax.tick_params(
+                axis="x",
+                top=row == 0,
+                labeltop=row == 0,
+                bottom=row == 1,
+                labelbottom=row == 1,
+                direction="out",
+                labelsize=7.8,
+                width=1.1,
+                length=3.5,
+                pad=2,
+            )
+            ax.tick_params(
+                axis="y",
+                left=col == 0,
+                labelleft=col == 0,
+                right=col == 1,
+                labelright=col == 1,
+                direction="out",
+                labelsize=7.8,
+                width=1.1,
+                length=3.5,
+                pad=2,
+            )
+
+    ev = next(iter(payloads.values()))[-1]
+    fig.supxlabel(f"PC1 ({ev[0] * 100:.1f}%)", fontsize=10.5, y=0.020)
+    fig.supylabel(f"PC2 ({ev[1] * 100:.1f}%)", fontsize=10.5, x=0.028)
+    fig.subplots_adjust(left=0.105, right=0.925, top=0.910, bottom=0.105, wspace=0.0, hspace=0.0)
     return fig
 
 def plot_figure2_nine_panel(auc_runs):
