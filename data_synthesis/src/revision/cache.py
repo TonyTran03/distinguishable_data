@@ -1,6 +1,7 @@
 """Cache helpers for expensive revision computations."""
 
 from src.revision.common import *
+import importlib
 
 
 def _cache_path(name):
@@ -19,7 +20,7 @@ def _read_cache(name):
         return None
 
 
-def cache_status(names=("auc_runs", "metric_table", "ablation_df", "noise_df")):
+def cache_status(names=("auc_runs", "metric_table", "ablation_df", "noise_df", "sample_size_auc", "rf_structure_rank_overlap", "refit_structural_ablation_sparse", "discriminator_importance")):
     """Return existence/readability status for notebook cache artifacts."""
     rows = []
     for name in names:
@@ -68,3 +69,26 @@ def get_reverse_ablation(force=False):
 def get_noise_sensitivity(force=False):
     from src.revision.figure5_noise import get_noise_sensitivity as _get_noise_sensitivity
     return _get_noise_sensitivity(force=force)
+
+
+def get_sample_size_auc(force=False):
+    from src.revision.figure7_sample_size import get_sample_size_auc as _get_sample_size_auc
+    return _get_sample_size_auc(force=force)
+
+
+def get_rf_structure_rank_overlap(force=False):
+    from src.revision import figure6_ablation
+    figure6_ablation = importlib.reload(figure6_ablation)
+    return figure6_ablation.get_rf_structure_rank_overlap(force=force)
+
+
+def get_refit_structural_ablation(force=False):
+    from src.revision import figure6_ablation
+    figure6_ablation = importlib.reload(figure6_ablation)
+    return figure6_ablation.get_refit_structural_ablation(force=force)
+
+
+def get_discriminator_importance_table(force=False):
+    from src.revision import figure6_ablation
+    figure6_ablation = importlib.reload(figure6_ablation)
+    return figure6_ablation.get_discriminator_importance_table(force=force)

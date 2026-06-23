@@ -150,6 +150,103 @@ def sample_class_conditional_copula(
     return generated
 
 
+def rank_transport_copula_marginals(
+    X_apply,
+    source_correlation,
+    target_correlation,
+):
+    """Reorder rows to move rank dependence toward a target correlation.
+
+    Unlike fresh copula sampling, this keeps each feature's observed values
+    exactly fixed and only changes their cross-feature rank alignment.
+    """
+    X_apply = _as_float_array(X_apply)
+    source_correlation = nearest_correlation(source_correlation)
+    target_correlation = nearest_correlation(target_correlation)
+    whitening = _matrix_power_psd(source_correlation, -0.5)
+    coloring = _matrix_power_psd(target_correlation, 0.5)
+    transformed_scores = gaussian_rank_scores(X_apply) @ whitening @ coloring
+    return _rank_reorder(X_apply, transformed_scores)
+
+
+def class_conditional_rank_transport(
+    X_syn,
+    y_syn,
+    source_correlation,
+    target_correlation,
+):
+    """Apply dependence rank transport within each synthetic class.
+
+    This preserves class-conditional synthetic marginals exactly while moving
+    dependence in a coherent full-matrix direction.
+    """
+    X_syn = _as_float_array(X_syn)
+    y_syn = np.asarray(y_syn, dtype=int)
+    transported = np.empty_like(X_syn)
+    for label in np.unique(y_syn):
+        indices = np.flatnonzero(y_syn == label)
+        transported[indices] = rank_transport_copula_marginals(
+            X_syn[indices],
+            source_correlation,
+            target_correlation,
+        )
+    return transported
+
+
+def dependence_alignment_counterfactual(
+    dataset_name,
+    X_real,
+    X_syn,
+    y_syn,
+    strength,
+    control=None,
+    seed=SEED,
+):
+    """Generate a synthetic counterfactual with aligned dependence.
+
+    The path starts from the synthetic Graphical-Lasso-implied dependence and
+    interpolates toward the real dependence. Synthetic class-conditional
+    marginals are preserved exactly by rank transport.
+    """
+    X_real = _as_float_array(X_real)
+    X_syn = _as_float_array(X_syn)
+    alpha = FIGURE4_ALPHAS[dataset_name]
+    real_precision = fit_glasso_precision(X_real, alpha)
+    synthetic_precision = fit_glasso_precision(X_syn, alpha)
+    real_correlation = precision_to_correlation(real_precision)
+    synthetic_correlation = precision_to_correlation(synthetic_precision)
+
+    if control == "permuted":
+        rng = np.random.default_rng(seed + 4049)
+        permutation = rng.permutation(X_real.shape[1])
+        endpoint_correlation = real_correlation[np.ix_(permutation, permutation)]
+    elif control is None:
+        permutation = None
+        endpoint_correlation = real_correlation
+    else:
+        raise ValueError("control must be None or 'permuted'.")
+
+    target_correlation = interpolate_correlation(
+        synthetic_correlation,
+        endpoint_correlation,
+        float(strength),
+    )
+    X_counterfactual = class_conditional_rank_transport(
+        X_syn,
+        y_syn,
+        source_correlation=synthetic_correlation,
+        target_correlation=target_correlation,
+    )
+    return X_counterfactual, {
+        "real_precision": real_precision,
+        "synthetic_precision": synthetic_precision,
+        "real_correlation": real_correlation,
+        "synthetic_correlation": synthetic_correlation,
+        "target_correlation": target_correlation,
+        "permutation": permutation,
+    }
+
+
 def class_conditional_marginal_ks(X_reference, y, X_candidate):
     """Summarize class-conditional marginal differences with KS statistics."""
     X_reference = _as_float_array(X_reference)
@@ -1009,6 +1106,175 @@ def plot_figure4_compatible_edge_status(
     )
     fig.tight_layout()
     return fig, order
+
+
+def _edge_status_counts(real_edges, synthetic_edges, n_features):
+    total_pairs = n_features * (n_features - 1) // 2
+    counts = {
+        "preserved": len(real_edges & synthetic_edges),
+        "real_only": len(real_edges - synthetic_edges),
+        "synthetic_only": len(synthetic_edges - real_edges),
+    }
+    counts["absent"] = total_pairs - sum(counts.values())
+    return counts
+
+
+def plot_dependence_alignment_edge_status_grid(
+    dataset_name,
+    method,
+    X_real,
+    X_syn,
+    y_syn,
+    feature_names=None,
+    strengths=(0.0, 0.25, 0.5, 1.0),
+    edge_threshold=1e-7,
+    control=None,
+    seed=SEED,
+    title=None,
+):
+    """Plot edge-status maps along a synthetic-to-real dependence path.
+
+    Each panel compares the real Graphical Lasso edge set with a synthetic
+    counterfactual whose class-conditional marginals are unchanged and whose
+    latent dependence is increasingly aligned toward the real structure.
+    """
+    X_real = _as_float_array(X_real)
+    X_syn = _as_float_array(X_syn)
+    y_syn = np.asarray(y_syn, dtype=int)
+    feature_names = list(
+        feature_names or [f"feature_{i + 1}" for i in range(X_real.shape[1])]
+    )
+    alpha = FIGURE4_ALPHAS[dataset_name]
+    real_partial = precision_to_partial_corr(fit_glasso_precision(X_real, alpha))
+    real_edges = get_edge_set(real_partial, edge_threshold)
+    order = get_real_structure_order(real_partial)
+    categories = ["absent", "preserved", "real_only", "synthetic_only"]
+    cmap = ListedColormap([STATUS_COLORS[category] for category in categories])
+
+    strengths = [float(strength) for strength in strengths]
+    if len(strengths) != 4:
+        raise ValueError("Provide exactly four strengths for the 2x2 grid.")
+
+    fig, axes = plt.subplots(2, 2, figsize=(9.6, 9.1), sharex=True, sharey=True)
+    axes = axes.ravel()
+    rows = []
+
+    n_features = X_real.shape[1]
+    tick_step = 1 if n_features <= 12 else 5 if n_features <= 35 else 10
+    ticks = np.arange(0, n_features, tick_step)
+    tick_labels = [str(index + 1) for index in ticks]
+
+    for panel_index, (ax, strength) in enumerate(zip(axes, strengths)):
+        X_counterfactual, metadata = dependence_alignment_counterfactual(
+            dataset_name,
+            X_real,
+            X_syn,
+            y_syn,
+            strength=strength,
+            control=control,
+            seed=seed,
+        )
+        synthetic_partial = precision_to_partial_corr(
+            fit_glasso_precision(X_counterfactual, alpha)
+        )
+        synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+        status = build_edge_status_matrix(
+            real_edges, synthetic_edges, n_features
+        )[np.ix_(order, order)]
+        counts = _edge_status_counts(real_edges, synthetic_edges, n_features)
+        rows.append(
+            {
+                "dataset": dataset_name,
+                "method": method,
+                "strength": strength,
+                "control": "real_aligned" if control is None else control,
+                "edge_recovery": (
+                    counts["preserved"] / len(real_edges) if real_edges else np.nan
+                ),
+                "synthetic_only_rate": (
+                    counts["synthetic_only"] / len(synthetic_edges)
+                    if synthetic_edges
+                    else np.nan
+                ),
+                "n_real_edges": len(real_edges),
+                "n_counterfactual_edges": len(synthetic_edges),
+                **{f"n_{key}": value for key, value in counts.items()},
+            }
+        )
+
+        ax.imshow(
+            status,
+            cmap=cmap,
+            vmin=-0.5,
+            vmax=3.5,
+            interpolation="nearest",
+            aspect="equal",
+        )
+        panel_letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[panel_index]
+        ax.text(
+            0.03,
+            0.06,
+            f"{panel_letter}. alignment={strength:g}",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.5,
+            weight="bold",
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.88, pad=2.5),
+        )
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(tick_labels, fontsize=7.8)
+        ax.set_yticklabels(tick_labels, fontsize=7.8)
+        ax.tick_params(axis="both", length=2.2, width=0.8, pad=1.5)
+        top_ax = ax.secondary_xaxis("top")
+        top_ax.set_xticks(ticks)
+        top_ax.set_xticklabels(tick_labels, fontsize=7.8)
+        top_ax.tick_params(length=2.2, width=0.8, pad=1.5)
+
+    handles = [
+        Patch(
+            facecolor=STATUS_COLORS["preserved"],
+            edgecolor="#333333",
+            label="Preserved edge",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["real_only"],
+            edgecolor="#333333",
+            label="Real-only / lost",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["synthetic_only"],
+            edgecolor="#333333",
+            label="Synthetic-only",
+        ),
+        Patch(
+            facecolor=STATUS_COLORS["absent"],
+            edgecolor="#C9CDD2",
+            label="Absent in both",
+        ),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=4,
+        frameon=False,
+        fontsize=9,
+        handlelength=1.6,
+        handletextpad=0.4,
+        columnspacing=1.0,
+    )
+    fig.suptitle(
+        title
+        or f"{dataset_name} {method}: dependence-aligned counterfactual edge status",
+        fontsize=14,
+        weight="bold",
+        y=0.988,
+    )
+    fig.subplots_adjust(left=0.055, right=0.995, top=0.94, bottom=0.085, wspace=0.02, hspace=0.02)
+    summary = pd.DataFrame(rows)
+    summary.attrs["metadata"] = metadata
+    return fig, summary
 
 
 def plot_edge_discrepancy_map(edge_table, feature_names, title=None, order=None):
