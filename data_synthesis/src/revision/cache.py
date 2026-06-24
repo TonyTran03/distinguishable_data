@@ -20,7 +20,7 @@ def _read_cache(name):
         return None
 
 
-def cache_status(names=("auc_runs", "metric_table", "ablation_df", "noise_df", "sample_size_auc", "rf_structure_rank_overlap", "refit_structural_ablation_sparse", "discriminator_importance")):
+def cache_status(names=("auc_runs", "metric_table", "ablation_df", "noise_df", "sample_size_auc", "rf_structure_rank_overlap", "refit_lost_new_edges_quintile", "discriminator_importance")):
     """Return existence/readability status for notebook cache artifacts."""
     rows = []
     for name in names:

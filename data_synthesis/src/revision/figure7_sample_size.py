@@ -172,126 +172,13 @@ def summarize_sample_size_auc(sample_size_auc):
     )
 
 
-def edge_discordance_from_metrics(structural_metrics):
-    """Compute edge-set discordance from Figure 4 Graphical Lasso metrics."""
-    metrics = structural_metrics.copy()
-    preserved = metrics["edge_recovery"].to_numpy(dtype=float) * metrics["n_real_edges"].to_numpy(dtype=float)
-    real_only = metrics["n_real_edges"].to_numpy(dtype=float) - preserved
-    synthetic_only = metrics["n_synthetic_edges"].to_numpy(dtype=float) - preserved
-    union = preserved + real_only + synthetic_only
-    discordance = np.divide(
-        real_only + synthetic_only,
-        union,
-        out=np.full_like(union, np.nan, dtype=float),
-        where=union > 0,
-    )
-    out = metrics[["dataset", "method"]].copy()
-    out["preserved_edges"] = preserved
-    out["real_only_edges"] = real_only
-    out["synthetic_only_edges"] = synthetic_only
-    out["edge_union"] = union
-    out["edge_discordance"] = discordance
-    return out
-
-
-def auc_edge_discordance_table(auc_runs, structural_metrics):
-    """Join mean RF-origin AUC with Graphical Lasso edge discordance."""
-    auc_summary = (
-        auc_runs.groupby(["dataset", "method"], as_index=False)
-        .agg(
-            auc_mean=("separability_auc", "mean"),
-            auc_sd=("separability_auc", "std"),
-            auc_runs=("separability_auc", "size"),
-        )
-    )
-    edge_summary = edge_discordance_from_metrics(structural_metrics)
-    return auc_summary.merge(edge_summary, on=["dataset", "method"], how="inner")
-
-
-def plot_auc_vs_edge_discordance(auc_runs, structural_metrics):
-    """Plot RF-origin AUC against Graphical Lasso edge-set discordance."""
-    table = auc_edge_discordance_table(auc_runs, structural_metrics)
-    fig, ax = plt.subplots(1, 1, figsize=(5.45, 4.35))
-
-    for dataset in DATASET_ORDER:
-        sub = table[table["dataset"] == dataset]
-        if sub.empty:
-            continue
-        for _, row in sub.iterrows():
-            method = row["method"]
-            ax.errorbar(
-                row["edge_discordance"],
-                row["auc_mean"],
-                yerr=row["auc_sd"],
-                marker="o",
-                markersize=7.0,
-                color=METHOD_COLORS[method],
-                markerfacecolor=METHOD_PASTELS[method],
-                markeredgecolor=METHOD_COLORS[method],
-                markeredgewidth=1.35,
-                ecolor=METHOD_COLORS[method],
-                elinewidth=1.2,
-                capsize=3,
-                zorder=3,
-            )
-            ax.text(
-                row["edge_discordance"] + 0.010,
-                row["auc_mean"],
-                dataset,
-                color=DATASET_COLORS[dataset],
-                fontsize=7.6,
-                va="center",
-                ha="left",
-            )
-
-    ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.15)
-    ax.set_xlabel("Graphical Lasso edge discordance")
-    ax.set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    ax.set_xlim(0, min(1.02, max(0.35, float(table["edge_discordance"].max()) + 0.08)))
-    ax.set_ylim(0.45, 1.03)
-    clean_axis(ax, grid_axis="both")
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(1.2)
-    ax.tick_params(labelsize=8.5, width=1.2, length=4)
-
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            color=METHOD_COLORS[method],
-            marker="o",
-            markerfacecolor=METHOD_PASTELS[method],
-            markeredgecolor=METHOD_COLORS[method],
-            markeredgewidth=1.35,
-            linewidth=0,
-            markersize=7.0,
-            label=method,
-        )
-        for method in METHOD_ORDER
-    ]
-    ax.legend(
-        handles=handles,
-        loc="lower right",
-        frameon=True,
-        facecolor="white",
-        edgecolor="#BDBDBD",
-        fontsize=8.0,
-        borderpad=0.35,
-        labelspacing=0.25,
-        handletextpad=0.35,
-    )
-    fig.subplots_adjust(left=0.16, right=0.98, top=0.94, bottom=0.16)
-    return fig, table
-
-
 def _plot_dataset_sample_size_panel(ax, summary, dataset, panel=None):
     sub = summary[summary["dataset"] == dataset]
     for method in METHOD_ORDER:
         m = sub[sub["method"] == method].sort_values("fraction")
         if m.empty:
             continue
-        x = m["fraction"].to_numpy(dtype=float)
+        x = m["fraction"].to_numpy(dtype=float) * 100.0
         y = m["auc_mean"].to_numpy(dtype=float)
         lo = m["auc_q025"].to_numpy(dtype=float)
         hi = m["auc_q975"].to_numpy(dtype=float)
@@ -317,9 +204,11 @@ def _plot_dataset_sample_size_panel(ax, summary, dataset, panel=None):
 
     ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.15)
     ax.set_title(dataset, color=DATASET_COLORS[dataset], weight="bold", fontsize=11.5, pad=8)
-    ax.set_xlabel("Fraction of real data used to train generator")
+    ax.set_xlabel("Real data used to train generator (%)")
     ax.set_ylim(0.45, 1.03)
-    ax.set_xlim(sub["fraction"].min() - 0.035, sub["fraction"].max() + 0.035)
+    ax.set_xlim(100, 2)
+    ax.set_xticks([100, 75, 50, 25, 2])
+    ax.set_xticklabels(["100%", "75%", "50%", "25%", "2"])
     clean_axis(ax, grid_axis="y")
     for spine in ax.spines.values():
         spine.set_visible(True)
@@ -364,8 +253,8 @@ def plot_sample_size_auc(sample_size_auc, dataset=None):
         return fig, summary
 
     fig, axes = plt.subplots(1, len(datasets), figsize=(14.4, 4.0), sharey=True)
-    for ax, ds, panel in zip(np.ravel(axes), datasets, ["A", "B", "C"]):
-        _plot_dataset_sample_size_panel(ax, summary, ds, panel=panel)
+    for ax, ds in zip(np.ravel(axes), datasets):
+        _plot_dataset_sample_size_panel(ax, summary, ds)
     np.ravel(axes)[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
     handles = [
         Line2D(

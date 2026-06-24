@@ -162,14 +162,16 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
     score_ax.set_xticklabels(score_labels, fontsize=7.2, linespacing=0.9)
     for center, metric in zip(score_centers, SCORE_METRIC_NAMES):
         _draw_metric_label(score_ax, center, metric)
-    score_ax.set_ylabel("Score", labelpad=12)
+    score_ax.set_ylabel("Score", labelpad=6)
 
     kld_ax.set_xlim(kld_center - METRIC_SPACING / 2, kld_center + METRIC_SPACING / 2)
     _set_kld_limits(kld_ax, kld_values)
     kld_ax.set_xticks(kld_positions)
     kld_ax.set_xticklabels(kld_labels, fontsize=7.2, linespacing=0.9)
     _draw_metric_label(kld_ax, kld_center, KLD_METRIC_NAME)
-    kld_ax.set_ylabel("KLD", labelpad=10)
+    kld_ax.set_ylabel("KLD", labelpad=4)
+    kld_ax.yaxis.set_label_position("left")
+    kld_ax.yaxis.tick_left()
 
     for ax in (score_ax, kld_ax):
         clean_axis(ax, grid_axis="y")

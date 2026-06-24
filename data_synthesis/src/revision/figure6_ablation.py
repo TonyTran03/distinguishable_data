@@ -1,6 +1,7 @@
 """Figure 6: reverse-ablation and feature-removal sensitivity."""
 
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 from src.revision.common import *
 from src.revision.stats import ablation_grid, one_run_origin_auc, rank_discriminating_features
@@ -8,11 +9,14 @@ from src.revision.cache import _read_cache, _write_cache
 from src.revision.figure4_graphical_lasso import FIGURE4_ALPHAS
 from src.revision.figure4_graphical_lasso_plots import (
     EDGE_COLORS,
+    STATUS_COLORS,
+    build_edge_status_matrix,
     compute_edge_recovery,
     compute_frobenius_deviation,
     compute_synthetic_only_rate,
     fit_glasso_precision,
     get_edge_set,
+    get_real_structure_order,
     precision_to_partial_corr,
     _fit_profile_tsne,
     _short_label,
@@ -407,7 +411,7 @@ def plot_rf_importance_tsne_edge_overlay(
     return fig, pd.DataFrame(rows)
 
 
-def _edge_jaccard_discordance(real_edges, synthetic_edges):
+def _edge_jaccard_mismatch(real_edges, synthetic_edges):
     union = real_edges | synthetic_edges
     if not union:
         return np.nan
@@ -421,20 +425,26 @@ def _structural_metrics_for_subset(X_real, X_syn, alpha, edge_threshold=1e-7):
     synthetic_partial = precision_to_partial_corr(theta_syn)
     real_edges = get_edge_set(real_partial, edge_threshold)
     synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+    lost_edges = real_edges - synthetic_edges
+    new_edges = synthetic_edges - real_edges
+    edge_union = real_edges | synthetic_edges
+    n_lost_plus_new = len(lost_edges) + len(new_edges)
     return {
         "frobenius_deviation": compute_frobenius_deviation(theta_real, theta_syn),
         "edge_recovery": compute_edge_recovery(real_edges, synthetic_edges),
         "synthetic_only_rate": compute_synthetic_only_rate(real_edges, synthetic_edges),
-        "edge_discordance": _edge_jaccard_discordance(real_edges, synthetic_edges),
+        "edge_mismatch": _edge_jaccard_mismatch(real_edges, synthetic_edges),
+        "lost_plus_new_edge_fraction": n_lost_plus_new / len(edge_union) if edge_union else 0.0,
+        "n_lost_plus_new_edges": n_lost_plus_new,
         "n_real_edges": len(real_edges),
         "n_synthetic_edges": len(synthetic_edges),
         "n_preserved_edges": len(real_edges & synthetic_edges),
-        "n_real_only_edges": len(real_edges - synthetic_edges),
-        "n_synthetic_only_edges": len(synthetic_edges - real_edges),
+        "n_real_only_edges": len(lost_edges),
+        "n_synthetic_only_edges": len(new_edges),
     }
 
 
-def structural_refit_removal_grid(n_features, fractions=(0.0, 0.20, 0.50, 0.75)):
+def structural_refit_removal_grid(n_features, fractions=(0.0, 0.25, 0.50, 0.75)):
     """Sparse removal grid for re-fitting structural diagnostics."""
     max_removed = max(0, int(n_features) - 2)
     points = [int(round(float(frac) * max_removed)) for frac in fractions]
@@ -448,13 +458,9 @@ def compute_refit_structural_ablation(
     repeats=ABLATION_REPEATS,
     cvae_epochs=CVAE_EPOCHS,
     edge_threshold=1e-7,
-    removal_fractions=(0.0, 0.20, 0.50, 0.75),
+    removal_fractions=(0.0, 0.25, 0.50, 0.75),
 ):
-    """Re-fit Graphical Lasso after RF-ranked feature removal.
-
-    This asks whether the AUC drop under reverse ablation is accompanied by a
-    drop in re-estimated real-vs-synthetic structural discordance.
-    """
+    """Recalculate Graphical Lasso edge mismatch after RF-ranked feature removal."""
     rows = []
     for ds in DATASET_ORDER:
         data = datasets[ds]
@@ -507,16 +513,16 @@ def compute_refit_structural_ablation(
 
 
 def get_refit_structural_ablation(force=False):
-    cached = None if force else _read_cache("refit_structural_ablation_sparse")
+    cached = None if force else _read_cache("refit_lost_new_edges_quintile")
     if cached is not None:
         return cached
     return _write_cache(
-        "refit_structural_ablation_sparse",
+        "refit_lost_new_edges_quintile",
         compute_refit_structural_ablation(require_datasets()),
     )
 
 
-def feature_edge_discordance_scores(X_real, X_syn, alpha, edge_threshold=1e-7):
+def feature_lost_new_edge_scores(X_real, X_syn, alpha, edge_threshold=1e-7):
     """Score features by incident lost and synthetic-only Graphical Lasso edges."""
     real_partial = precision_to_partial_corr(fit_glasso_precision(X_real, alpha))
     synthetic_partial = precision_to_partial_corr(fit_glasso_precision(X_syn, alpha))
@@ -535,7 +541,7 @@ def feature_edge_discordance_scores(X_real, X_syn, alpha, edge_threshold=1e-7):
         incident_union = [
             edge for edge in (real_edges | synthetic_edges) if feature in edge
         ]
-        discordant_count = len(incident_real_only) + len(incident_synthetic_only)
+        changed_count = len(incident_real_only) + len(incident_synthetic_only)
         union_count = len(incident_union)
         rows.append(
             {
@@ -544,9 +550,9 @@ def feature_edge_discordance_scores(X_real, X_syn, alpha, edge_threshold=1e-7):
                 "synthetic_only_edges": len(incident_synthetic_only),
                 "preserved_edges": len(incident_preserved),
                 "edge_union": union_count,
-                "edge_discordance_count": discordant_count,
-                "edge_discordance_rate": (
-                    discordant_count / union_count if union_count else 0.0
+                "lost_new_edge_count": changed_count,
+                "lost_new_edge_rate": (
+                    changed_count / union_count if union_count else 0.0
                 ),
                 "real_only_weight": sum(
                     abs(float(real_partial[edge[0], edge[1]]))
@@ -559,11 +565,11 @@ def feature_edge_discordance_scores(X_real, X_syn, alpha, edge_threshold=1e-7):
             }
         )
     scores = pd.DataFrame(rows)
-    scores["edge_discordance_weight"] = (
+    scores["lost_new_edge_weight"] = (
         scores["real_only_weight"] + scores["synthetic_only_weight"]
     )
     return scores.sort_values(
-        ["edge_discordance_count", "edge_discordance_weight", "edge_discordance_rate"],
+        ["lost_new_edge_count", "lost_new_edge_weight", "lost_new_edge_rate"],
         ascending=[False, False, False],
         ignore_index=True,
     )
@@ -575,7 +581,7 @@ def compute_rf_structure_rank_overlap(
     cvae_epochs=CVAE_EPOCHS,
     edge_threshold=1e-7,
 ):
-    """Compare RF discriminator ranking with edge-discordance ranking."""
+    """Compare RF discriminator ranking with lost/new-edge ranking."""
     rows = []
     for ds in DATASET_ORDER:
         data = datasets[ds]
@@ -589,7 +595,7 @@ def compute_rf_structure_rank_overlap(
             X_syn, _ = sample_synthetic(ds, data, method, seed=seed, cvae_epochs=cvae_epochs)
             X_syn = np.asarray(X_syn, dtype=np.float32)
             rf_rank = rank_discriminating_features(X_real, X_syn, seed=seed)
-            structure_scores = feature_edge_discordance_scores(
+            structure_scores = feature_lost_new_edge_scores(
                 X_real,
                 X_syn,
                 alpha=alpha,
@@ -602,18 +608,18 @@ def compute_rf_structure_rank_overlap(
                 n_removed = int(n_removed)
                 if n_removed <= 0:
                     overlap = np.nan
-                    mean_discordance_count = 0.0
-                    mean_discordance_weight = 0.0
+                    mean_lost_new_count = 0.0
+                    mean_lost_new_weight = 0.0
                 else:
                     rf_top = set(rf_rank[:n_removed])
                     structure_top = set(structure_rank[:n_removed])
                     overlap = len(rf_top & structure_top) / n_removed
                     removed = list(rf_rank[:n_removed])
-                    mean_discordance_count = float(
-                        structure_lookup.loc[removed, "edge_discordance_count"].mean()
+                    mean_lost_new_count = float(
+                        structure_lookup.loc[removed, "lost_new_edge_count"].mean()
                     )
-                    mean_discordance_weight = float(
-                        structure_lookup.loc[removed, "edge_discordance_weight"].mean()
+                    mean_lost_new_weight = float(
+                        structure_lookup.loc[removed, "lost_new_edge_weight"].mean()
                     )
                 rows.append(
                     {
@@ -621,8 +627,8 @@ def compute_rf_structure_rank_overlap(
                         "method": method,
                         "n_features_removed": n_removed,
                         "rf_structural_topk_overlap": overlap,
-                        "mean_removed_edge_discordance_count": mean_discordance_count,
-                        "mean_removed_edge_discordance_weight": mean_discordance_weight,
+                        "mean_removed_lost_new_edge_count": mean_lost_new_count,
+                        "mean_removed_lost_new_edge_weight": mean_lost_new_weight,
                     }
                 )
 
@@ -634,14 +640,14 @@ def compute_rf_structure_rank_overlap(
                         "method": method,
                         "n_features_removed": -rank_position,
                         "rf_structural_topk_overlap": np.nan,
-                        "mean_removed_edge_discordance_count": np.nan,
-                        "mean_removed_edge_discordance_weight": np.nan,
+                        "mean_removed_lost_new_edge_count": np.nan,
+                        "mean_removed_lost_new_edge_weight": np.nan,
                         "feature_index": int(feature),
                         "feature_name": feature_names[int(feature)],
                         "rf_rank": rank_position,
-                        "edge_discordance_count": float(row["edge_discordance_count"]),
-                        "edge_discordance_rate": float(row["edge_discordance_rate"]),
-                        "edge_discordance_weight": float(row["edge_discordance_weight"]),
+                        "lost_new_edge_count": float(row["lost_new_edge_count"]),
+                        "lost_new_edge_rate": float(row["lost_new_edge_rate"]),
+                        "lost_new_edge_weight": float(row["lost_new_edge_weight"]),
                     }
                 )
     return pd.DataFrame(rows)
@@ -658,7 +664,7 @@ def get_rf_structure_rank_overlap(force=False):
 
 
 def plot_rf_structure_rank_overlap(overlap_df):
-    """Show whether RF-removed features are also structurally discordant."""
+    """Show whether RF-removed features are also high lost/new-edge features."""
     curve_df = overlap_df[overlap_df["n_features_removed"] >= 0].copy()
     fig, axes = plt.subplots(1, len(DATASET_ORDER), figsize=(13.4, 3.55), sharey=True)
     for ax, ds, panel in zip(np.ravel(axes), DATASET_ORDER, ["A", "B", "C"]):
@@ -695,7 +701,7 @@ def plot_rf_structure_rank_overlap(overlap_df):
             va="top",
             ha="left",
         )
-    axes[0].set_ylabel("Overlap with top structural-discordance features")
+    axes[0].set_ylabel("Overlap with top lost/new-edge features")
     handles = [
         Line2D([0], [0], color=METHOD_COLORS[method], marker="o", linewidth=2.0, markersize=4.8, label=method)
         for method in METHOD_ORDER
@@ -717,7 +723,10 @@ def plot_rf_structure_rank_overlap(overlap_df):
 
 
 def plot_refit_structural_ablation(refit_df):
-    """Plot AUC and re-fit edge discordance along RF-ranked feature removal."""
+    """Plot AUC and recalculated lost/new edges after RF-ranked feature removal."""
+    refit_df = refit_df.copy()
+    if "lost_plus_new_edge_fraction" not in refit_df.columns:
+        refit_df["lost_plus_new_edge_fraction"] = refit_df["edge_mismatch"]
     fig = plt.figure(figsize=(13.4, 7.2), constrained_layout=False)
     gs = fig.add_gridspec(2, len(DATASET_ORDER), height_ratios=[1.0, 1.0])
     auc_axes = [fig.add_subplot(gs[0, i]) for i in range(len(DATASET_ORDER))]
@@ -749,7 +758,7 @@ def plot_refit_structural_ablation(refit_df):
             )
             ax_edge.plot(
                 m["n_features_removed"],
-                m["edge_discordance"],
+                m["lost_plus_new_edge_fraction"],
                 color=METHOD_COLORS[method],
                 marker="o",
                 linewidth=2.15,
@@ -789,7 +798,7 @@ def plot_refit_structural_ablation(refit_df):
             ax.tick_params(labelsize=8.8, width=1.2, length=4)
 
     auc_axes[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    edge_axes[0].set_ylabel("Re-fit edge discordance")
+    edge_axes[0].set_ylabel("Lost + new edge fraction")
     for ax in auc_axes[1:] + edge_axes[1:]:
         ax.set_ylabel("")
 
@@ -819,6 +828,293 @@ def plot_refit_structural_ablation(refit_df):
     fig.subplots_adjust(left=0.075, right=0.99, top=0.88, bottom=0.15, wspace=0.18, hspace=0.36)
     return fig
 
+
+def _snapshot_removal_grid(n_features, fractions=(0.0, 0.20, 0.50)):
+    max_removed = max(0, int(n_features) - 2)
+    points = [int(round(float(frac) * max_removed)) for frac in fractions]
+    points.append(max_removed)
+    return np.asarray(sorted(set(max(0, min(max_removed, point)) for point in points)), dtype=int)
+
+
+def plot_hiv_cvae_refit_edge_status_snapshots(
+    datasets,
+    seed=SEED,
+    cvae_epochs=CVAE_EPOCHS,
+    edge_threshold=1e-7,
+):
+    """2x2 HIV/CVAE edge-status snapshots after RF-ranked feature removal."""
+    dataset = "HIV"
+    method = "CVAE"
+    data = datasets[dataset]
+    X_real = np.asarray(data["X"], dtype=np.float32)
+    y_real = np.asarray(data["y"], dtype=int)
+    feature_names = list(data.get("feature_names", [f"feature_{i + 1}" for i in range(X_real.shape[1])]))
+    alpha = FIGURE4_ALPHAS[dataset]
+
+    X_syn, _ = sample_synthetic(dataset, data, method, seed=seed, cvae_epochs=cvae_epochs)
+    X_syn = np.asarray(X_syn, dtype=np.float32)
+    _, _, ranking = discriminator_feature_importance(X_real, X_syn, seed=seed)
+    grid = _snapshot_removal_grid(X_real.shape[1])
+
+    fig, axes = plt.subplots(2, 2, figsize=(8.8, 8.4), constrained_layout=False)
+    axes = list(np.ravel(axes))
+    categories = ["absent", "preserved", "real_only", "synthetic_only"]
+    cmap = mpl.colors.ListedColormap([STATUS_COLORS[category] for category in categories])
+    rows = []
+
+    for ax, n_removed, panel in zip(axes, grid, ["A", "B", "C", "D"]):
+        keep = np.asarray(ranking[int(n_removed):], dtype=int)
+        Xr_keep = X_real[:, keep]
+        Xs_keep = X_syn[:, keep]
+        theta_real = fit_glasso_precision(Xr_keep, alpha)
+        theta_syn = fit_glasso_precision(Xs_keep, alpha)
+        real_partial = precision_to_partial_corr(theta_real)
+        synthetic_partial = precision_to_partial_corr(theta_syn)
+        real_edges = get_edge_set(real_partial, edge_threshold)
+        synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+        order = get_real_structure_order(real_partial)
+        status = build_edge_status_matrix(real_edges, synthetic_edges, len(keep))[np.ix_(order, order)]
+        ordered_original_indices = keep[order] + 1
+
+        ax.imshow(
+            status,
+            cmap=cmap,
+            vmin=-0.5,
+            vmax=3.5,
+            interpolation="nearest",
+            aspect="equal",
+        )
+        n_remaining = len(keep)
+        tick_step = 1 if n_remaining <= 12 else 5 if n_remaining <= 35 else 10
+        ticks = np.arange(0, n_remaining, tick_step)
+        labels = [str(int(ordered_original_indices[tick])) for tick in ticks]
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(labels, fontsize=7.4)
+        ax.set_yticklabels(labels, fontsize=7.4)
+        ax.tick_params(axis="both", length=2.2, width=0.8, pad=1.5)
+        top_ax = ax.secondary_xaxis("top")
+        top_ax.set_xticks(ticks)
+        top_ax.set_xticklabels(labels, fontsize=7.4)
+        top_ax.tick_params(length=2.2, width=0.8, pad=1.5)
+        ax.text(
+            0.03,
+            0.06,
+            f"{panel}. remove {int(n_removed)}\nkeep {n_remaining}",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=10.6,
+            weight="bold",
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.88, pad=2.5),
+        )
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.1)
+
+        rows.append(
+            {
+                "dataset": dataset,
+                "method": method,
+                "n_features_removed": int(n_removed),
+                "n_features_retained": int(n_remaining),
+                "edge_recovery": compute_edge_recovery(real_edges, synthetic_edges),
+                "synthetic_only_rate": compute_synthetic_only_rate(real_edges, synthetic_edges),
+                "edge_mismatch": _edge_jaccard_mismatch(real_edges, synthetic_edges),
+                "n_real_edges": len(real_edges),
+                "n_synthetic_edges": len(synthetic_edges),
+                "n_preserved_edges": len(real_edges & synthetic_edges),
+                "n_real_only_edges": len(real_edges - synthetic_edges),
+                "n_synthetic_only_edges": len(synthetic_edges - real_edges),
+                "retained_original_feature_indices": ordered_original_indices.astype(int).tolist(),
+            }
+        )
+
+    handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
+        ncol=4,
+        frameon=True,
+        facecolor="white",
+        edgecolor="black",
+        framealpha=0,
+        borderpad=0.55,
+        fontsize=8.4,
+    )
+    fig.suptitle(
+        "HIV CVAE: re-fit edge-status maps after RF-ranked feature removal",
+        y=0.985,
+        fontsize=13.5,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.06, right=0.995, top=0.925, bottom=0.10, wspace=0.02, hspace=0.10)
+    return fig, pd.DataFrame(rows)
+
+
+def _rf_removal_sweep_grid(n_features, fractions=(0.0, 0.25, 0.50, 0.75)):
+    max_removed = max(0, int(n_features) - 2)
+    points = [int(round(float(frac) * max_removed)) for frac in fractions]
+    points.append(max_removed)
+    return np.asarray(sorted(set(max(0, min(max_removed, point)) for point in points)), dtype=int)
+
+
+def plot_hiv_refit_edge_status_removal_sweep(
+    datasets,
+    seed=SEED,
+    cvae_epochs=CVAE_EPOCHS,
+    removal_fractions=(0.0, 0.25, 0.50, 0.75),
+    edge_threshold=1e-7,
+):
+    """HIV Figure-4-style 63x63 edge-status maps after RF-ranked feature removal."""
+    dataset = "HIV"
+    data = datasets[dataset]
+    X_real = np.asarray(data["X"], dtype=np.float32)
+    alpha = FIGURE4_ALPHAS[dataset]
+    removal_grid = _rf_removal_sweep_grid(X_real.shape[1], fractions=removal_fractions)
+    full_real_partial = precision_to_partial_corr(fit_glasso_precision(X_real, alpha))
+    full_order = get_real_structure_order(full_real_partial)
+
+    removed_code = 4
+    removed_color = "#B8BDC6"
+    categories = ["absent", "preserved", "real_only", "synthetic_only", "removed"]
+    color_lookup = {**STATUS_COLORS, "removed": removed_color}
+    cmap = mpl.colors.ListedColormap([color_lookup[category] for category in categories])
+    fig = plt.figure(figsize=(20.5, 7.4), constrained_layout=False)
+    outer = fig.add_gridspec(1, len(removal_grid), wspace=0.055)
+    rows = []
+    method_data = {}
+    for method in METHOD_ORDER:
+        X_syn, _ = sample_synthetic(dataset, data, method, seed=seed, cvae_epochs=cvae_epochs)
+        X_syn = np.asarray(X_syn, dtype=np.float32)
+        _, _, ranking = discriminator_feature_importance(X_real, X_syn, seed=seed)
+        method_data[method] = {"X_syn": X_syn, "ranking": np.asarray(ranking, dtype=int)}
+
+    method_panels = {
+        "Bootstrap": ("A", 0, 0),
+        "Column-wise": ("B", 0, 1),
+        "GMM": ("C", 1, 0),
+        "CVAE": ("D", 1, 1),
+    }
+    group_label_specs = []
+
+    for group_idx, n_removed in enumerate(removal_grid):
+        sub = outer[group_idx].subgridspec(2, 2, wspace=0.015, hspace=0.015)
+        axes_by_method = {}
+        for method in METHOD_ORDER:
+            panel, row_idx, col_idx = method_panels[method]
+            ax = fig.add_subplot(sub[row_idx, col_idx])
+            axes_by_method[method] = ax
+
+        for method in METHOD_ORDER:
+            ax = axes_by_method[method]
+            panel, _, _ = method_panels[method]
+            X_syn = method_data[method]["X_syn"]
+            ranking = method_data[method]["ranking"]
+            keep = np.asarray(ranking[int(n_removed):], dtype=int)
+
+            theta_real = fit_glasso_precision(X_real[:, keep], alpha)
+            theta_syn = fit_glasso_precision(X_syn[:, keep], alpha)
+            real_partial = precision_to_partial_corr(theta_real)
+            synthetic_partial = precision_to_partial_corr(theta_syn)
+            real_edges = get_edge_set(real_partial, edge_threshold)
+            synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+            status_keep = build_edge_status_matrix(real_edges, synthetic_edges, len(keep))
+            status = np.full((X_real.shape[1], X_real.shape[1]), removed_code, dtype=int)
+            status[np.ix_(keep, keep)] = status_keep
+            status = status[np.ix_(full_order, full_order)]
+            ordered_original_indices = keep + 1
+
+            ax.imshow(status, cmap=cmap, vmin=-0.5, vmax=4.5, interpolation="nearest", aspect="equal")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.tick_params(length=0)
+            ax.text(
+                0.035,
+                0.055,
+                f"{panel}. {method}\nkeep {len(keep)}/63",
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=8.6,
+                weight="bold",
+                color=METHOD_COLORS.get(method, "#222222"),
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.86, pad=1.9),
+            )
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.95)
+
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "method": method,
+                    "n_features_removed": int(n_removed),
+                    "removal_label": "all but 2"
+                    if int(n_removed) == int(X_real.shape[1] - 2)
+                    else f"{int(round(100 * int(n_removed) / max(1, X_real.shape[1] - 2)))}%",
+                    "n_features_retained": int(len(keep)),
+                    "edge_recovery": compute_edge_recovery(real_edges, synthetic_edges),
+                    "synthetic_only_rate": compute_synthetic_only_rate(real_edges, synthetic_edges),
+                    "edge_mismatch": _edge_jaccard_mismatch(real_edges, synthetic_edges),
+                    "n_real_edges": len(real_edges),
+                    "n_synthetic_edges": len(synthetic_edges),
+                    "n_preserved_edges": len(real_edges & synthetic_edges),
+                    "n_real_only_edges": len(real_edges - synthetic_edges),
+                    "n_synthetic_only_edges": len(synthetic_edges - real_edges),
+                    "retained_original_feature_indices": ordered_original_indices.astype(int).tolist(),
+                }
+            )
+
+        label = "all but 2" if int(n_removed) == int(X_real.shape[1] - 2) else f"{int(round(100 * n_removed / max(1, X_real.shape[1] - 2)))}%"
+        group_label_specs.append((axes_by_method[METHOD_ORDER[0]], axes_by_method[METHOD_ORDER[-1]], f"Remove {int(n_removed)} ({label})"))
+
+    handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+        Patch(facecolor=removed_color, edgecolor="#777777", label="Removed feature"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.015),
+        ncol=5,
+        frameon=False,
+        fontsize=8.8,
+        columnspacing=1.05,
+        handlelength=1.45,
+        handletextpad=0.45,
+    )
+    fig.suptitle(
+        "HIV: fixed 63x63 edge-status maps after RF-ranked feature removal",
+        y=0.99,
+        fontsize=14.0,
+        weight="semibold",
+    )
+    fig.subplots_adjust(left=0.012, right=0.992, top=0.875, bottom=0.095)
+    for first_ax, last_ax, label in group_label_specs:
+        first_pos = first_ax.get_position()
+        last_pos = last_ax.get_position()
+        fig.text(
+            (first_pos.x0 + last_pos.x1) / 2,
+            0.905,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=10.2,
+            weight="bold",
+        )
+    return fig, pd.DataFrame(rows)
+
+
 def plot_figure6_ablation_ac(ablation_df):
     """Compact Figure 6 panel: A-C show reverse ablation curves."""
     fig, curve_axes = plt.subplots(1, len(DATASET_ORDER), figsize=(13.4, 3.8), sharey=True)
@@ -844,12 +1140,21 @@ def plot_figure6_ablation_ac(ablation_df):
                 legend_handles.append(line)
 
         ax_curve.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
-        ax_curve.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", pad=8, fontsize=13)
-        ax_curve.text(-0.13, 1.08, chr(ord("A") + panel_idx), transform=ax_curve.transAxes,
-                      fontsize=15, weight="bold", va="top", ha="left")
+        ax_curve.set_title("")
         max_removed = int(sub["n_features_removed"].max())
         ax_curve.set_xlim(-1, max_removed + 1)
-        ax_curve.set_xlabel("Features removed")
+        ax_curve.set_xlabel("Number of features removed", labelpad=6)
+        ax_curve.text(
+            0.5,
+            -0.34,
+            ds,
+            transform=ax_curve.transAxes,
+            ha="center",
+            va="top",
+            color=DATASET_COLORS[ds],
+            weight="semibold",
+            fontsize=13,
+        )
         clean_axis(ax_curve, grid_axis="y")
         ax_curve.spines["left"].set_linewidth(1.8)
         ax_curve.spines["bottom"].set_linewidth(1.8)
@@ -870,11 +1175,11 @@ def plot_figure6_ablation_ac(ablation_df):
             ax.set_ylim(y_min, y_max)
 
     handles = legend_handles[:len(METHOD_ORDER)]
-    fig.legend(handles, [h.get_label() for h in handles], loc="lower center",
-               bbox_to_anchor=(0.5, 0.01), ncol=len(handles), frameon=True,
-               facecolor="white", edgecolor="black", framealpha=1.0, borderpad=0.55)
+    fig.legend(handles, [h.get_label() for h in handles], loc="upper center",
+               bbox_to_anchor=(0.5, 0.985), ncol=len(handles), frameon=False,
+               borderpad=0.25, columnspacing=1.05, handlelength=1.55, handletextpad=0.45)
     fig.suptitle("Reverse feature ablation", y=0.98, fontsize=15, weight="semibold")
-    fig.subplots_adjust(left=0.075, right=0.99, top=0.78, bottom=0.27, wspace=0.18)
+    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.31, wspace=0.18)
     return fig
 
 def _flat_values(series):
@@ -905,16 +1210,7 @@ def plot_figure6_ablation_all_datasets(ablation_df):
                 legend_handles.append(line)
 
         ax_curve.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
-        ax_curve.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", pad=8, fontsize=13)
-
-        ax_curve.text(
-            -0.13, 1.08, chr(ord("A") + panel_idx),
-            transform=ax_curve.transAxes,
-            fontsize=15,
-            weight="bold",
-            va="top",
-            ha="left"
-        )
+        ax_curve.set_title("")
 
         max_removed = int(sub["n_features_removed"].max())
         min_removed = int(sub["n_features_removed"].min())
@@ -924,7 +1220,18 @@ def plot_figure6_ablation_all_datasets(ablation_df):
 
         ax_curve.set_xlim(min_removed - x_pad, max_removed + x_pad)
 
-        ax_curve.set_xlabel("Number of features removed")
+        ax_curve.set_xlabel("Number of features removed", labelpad=6)
+        ax_curve.text(
+            0.5,
+            -0.34,
+            ds,
+            transform=ax_curve.transAxes,
+            ha="center",
+            va="top",
+            color=DATASET_COLORS[ds],
+            weight="semibold",
+            fontsize=13,
+        )
         clean_axis(ax_curve, grid_axis="y")
 
         for spine in ax_curve.spines.values():
@@ -949,10 +1256,10 @@ def plot_figure6_ablation_all_datasets(ablation_df):
             ax.set_ylim(y_min, y_max)
 
     handles = legend_handles[:len(METHOD_ORDER)]
-    fig.legend(handles, [h.get_label() for h in handles], loc="lower center",
-               bbox_to_anchor=(0.5, 0.01), ncol=len(handles), frameon=True,
-               facecolor="white", edgecolor="black", framealpha=0, borderpad=0.55)
+    fig.legend(handles, [h.get_label() for h in handles], loc="upper center",
+               bbox_to_anchor=(0.5, 0.985), ncol=len(handles), frameon=False,
+               borderpad=0.25, columnspacing=1.05, handlelength=1.55, handletextpad=0.45)
     # fig.suptitle("Reverse feature ablation", y=0.98, fontsize=15, weight="semibold")
 
-    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.27, wspace=0.18)
+    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.31, wspace=0.18)
     return fig
