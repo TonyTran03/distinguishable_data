@@ -1,22 +1,22 @@
 \begin{table}
 \caption{Summary of synthetic data quality metrics across datasets and methods.}
 \label{tab:supp_metric_summary}
-\begin{tabular}{lllllll}
+\begin{tabular}{llllllll}
 \toprule
-Dataset & Method & Mean KLD & NN realism dist. & Structure Frobenius & Edge recovery & Synthetic-only rate \\
+Dataset & Method & Mean KLD & Mean KS & NN realism dist. & Structure Frobenius & Edge recovery & Synthetic-only rate \\
 \midrule
-HIV & Bootstrap & 0.69 & 0.00 & 5.23 & -- & -- \\
-HIV & Column-wise & 0.62 & 7.82 & 22.80 & -- & -- \\
-HIV & GMM & 1.11 & 65.41 & 8.25 & -- & -- \\
-HIV & CVAE & 4.67 & 3.37 & 13.21 & -- & -- \\
-Breast Cancer & Bootstrap & 0.12 & 0.00 & 1.01 & -- & -- \\
-Breast Cancer & Column-wise & 0.08 & 4.03 & 8.04 & -- & -- \\
-Breast Cancer & GMM & 0.28 & 5.52 & 3.63 & -- & -- \\
-Breast Cancer & CVAE & 0.40 & 1.87 & 2.14 & -- & -- \\
-Diabetes & Bootstrap & 0.05 & 0.00 & 0.28 & -- & -- \\
-Diabetes & Column-wise & 0.03 & 1.33 & 1.53 & -- & -- \\
-Diabetes & GMM & 0.45 & 1.33 & 0.29 & -- & -- \\
-Diabetes & CVAE & 0.82 & 0.87 & 1.11 & -- & -- \\
+HIV & Bootstrap & 0.69 & 0.07 & 0.00 & 5.23 & -- & -- \\
+HIV & Column-wise & 0.62 & 0.08 & 7.82 & 22.80 & -- & -- \\
+HIV & GMM & 1.11 & 0.20 & 65.18 & 8.25 & -- & -- \\
+HIV & CVAE & 4.67 & 0.31 & 3.37 & 13.21 & -- & -- \\
+Breast Cancer & Bootstrap & 0.12 & 0.03 & 0.00 & 1.01 & -- & -- \\
+Breast Cancer & Column-wise & 0.08 & 0.03 & 4.03 & 8.04 & -- & -- \\
+Breast Cancer & GMM & 0.28 & 0.10 & 5.52 & 3.63 & -- & -- \\
+Breast Cancer & CVAE & 0.36 & 0.07 & 1.87 & 2.14 & -- & -- \\
+Diabetes & Bootstrap & 0.05 & 0.03 & 0.00 & 0.28 & -- & -- \\
+Diabetes & Column-wise & 0.03 & 0.03 & 1.33 & 1.53 & -- & -- \\
+Diabetes & GMM & 0.45 & 0.14 & 1.33 & 0.29 & -- & -- \\
+Diabetes & CVAE & 0.82 & 0.17 & 0.86 & 1.11 & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}

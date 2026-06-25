@@ -1,7 +1,7 @@
 """Figure 3: utility and distributional metric summaries."""
 
 from src.revision.common import *
-from src.revision.stats import mean_kld_by_feature, nn_distance_mean, tstr_values
+from src.revision.stats import ks_by_feature, mean_kld_by_feature, nn_distance_mean, tstr_values
 
 def build_metric_table(datasets, auc_runs, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     rows = []
@@ -16,6 +16,7 @@ def build_metric_table(datasets, auc_runs, seed=SEED, cvae_epochs=CVAE_EPOCHS):
             gap = np.abs(trtr - tstr)
             auc_vals = auc_runs[(auc_runs["dataset"] == ds) & (auc_runs["method"] == method)]["separability_auc"].to_numpy()
             klds = mean_kld_by_feature(X_real, X_syn)
+            ks_stats = ks_by_feature(X_real, X_syn)
             rows.append({
                 "dataset": ds,
                 "method": method,
@@ -29,6 +30,7 @@ def build_metric_table(datasets, auc_runs, seed=SEED, cvae_epochs=CVAE_EPOCHS):
                 "utility_gap_abs_sd": float(np.std(gap)),
                 "utility_gap_abs_values": gap.tolist(),
                 "mean_feature_kld": float(np.mean(klds)),
+                "mean_feature_ks": float(np.nanmean(ks_stats)),
                 "nn_distance_mean": nn_distance_mean(X_real, X_syn),
             })
     return pd.DataFrame(rows)
@@ -126,7 +128,12 @@ def plot_main_metric_summary_table(metric_table):
     return fig, display_df
 
 def build_supplementary_metric_table(metric_table, structure_metrics=None):
-    supp = metric_table[["dataset", "method", "mean_feature_kld", "nn_distance_mean"]].copy()
+    supp_cols = ["dataset", "method", "mean_feature_kld", "nn_distance_mean"]
+    if "mean_feature_ks" in metric_table.columns:
+        supp_cols.insert(3, "mean_feature_ks")
+    supp = metric_table[supp_cols].copy()
+    if "mean_feature_ks" not in supp.columns:
+        supp["mean_feature_ks"] = np.nan
     structural_cols = ["frobenius_deviation", "edge_recovery", "synthetic_only_rate"]
     if structure_metrics is not None and not structure_metrics.empty:
         structure_metrics = structure_metrics.copy()
@@ -145,17 +152,18 @@ def build_supplementary_metric_table(metric_table, structure_metrics=None):
         "Dataset": supp["dataset"],
         "Method": supp["method"],
         "Mean KLD": supp["mean_feature_kld"].map(lambda v: f"{v:.2f}"),
+        "Mean KS": supp["mean_feature_ks"].map(lambda v: "--" if pd.isna(v) else f"{v:.2f}"),
         "NN realism dist.": supp["nn_distance_mean"].map(lambda v: f"{v:.2f}"),
         "Structure Frobenius": supp["frobenius_deviation"].map(lambda v: "--" if pd.isna(v) else f"{v:.2f}"),
         "Edge recovery": supp["edge_recovery"].map(lambda v: "--" if pd.isna(v) else f"{v:.2f}"),
         "Synthetic-only rate": supp["synthetic_only_rate"].map(lambda v: "--" if pd.isna(v) else f"{v:.2f}"),
     })
-    numeric_df = supp[["mean_feature_kld", "nn_distance_mean", "frobenius_deviation", "edge_recovery", "synthetic_only_rate"]].copy()
+    numeric_df = supp[["mean_feature_kld", "mean_feature_ks", "nn_distance_mean", "frobenius_deviation", "edge_recovery", "synthetic_only_rate"]].copy()
     return display_df, numeric_df
 
 def plot_supplementary_metric_table(metric_table, structure_metrics=None):
     display_df, numeric_df = build_supplementary_metric_table(metric_table, structure_metrics)
-    fig, ax = plt.subplots(figsize=(14.2, 5.35))
+    fig, ax = plt.subplots(figsize=(15.4, 5.35))
     ax.axis("off")
     tbl = ax.table(
         cellText=display_df.values,
@@ -163,7 +171,7 @@ def plot_supplementary_metric_table(metric_table, structure_metrics=None):
         loc="center",
         cellLoc="center",
         colLoc="center",
-        colWidths=[0.16, 0.13, 0.12, 0.14, 0.16, 0.13, 0.16],
+        colWidths=[0.14, 0.12, 0.105, 0.095, 0.13, 0.15, 0.12, 0.14],
     )
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(9.2)
@@ -171,10 +179,11 @@ def plot_supplementary_metric_table(metric_table, structure_metrics=None):
 
     metric_specs = {
         2: ("mean_feature_kld", False),
-        3: ("nn_distance_mean", False),
-        4: ("frobenius_deviation", False),
-        5: ("edge_recovery", True),
-        6: ("synthetic_only_rate", False),
+        3: ("mean_feature_ks", False),
+        4: ("nn_distance_mean", False),
+        5: ("frobenius_deviation", False),
+        6: ("edge_recovery", True),
+        7: ("synthetic_only_rate", False),
     }
     for (r, c), cell in tbl.get_celld().items():
         cell.set_edgecolor("white")

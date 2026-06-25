@@ -18,7 +18,14 @@ def one_run_origin_auc(X_real, y_real, X_syn, y_syn, seed):
     Xr, Xs = standardize_pair(X_real[real_idx], X_syn[syn_idx])
     X = np.vstack([Xr, Xs])
     origin = np.r_[np.zeros(len(Xr), dtype=int), np.ones(len(Xs), dtype=int)]
-    X_train, X_test, y_train, y_test = train_test_split(X, origin, test_size=0.25, stratify=origin, random_state=seed)
+    if len(Xr) < 2 or len(Xs) < 2:
+        raise ValueError(
+            "Origin AUC requires at least two matched real and synthetic samples; "
+            f"got {len(Xr)} real and {len(Xs)} synthetic."
+        )
+    test_size = max(2, int(np.ceil(0.25 * len(origin))))
+    test_size = min(test_size, len(origin) - 2)
+    X_train, X_test, y_train, y_test = train_test_split(X, origin, test_size=test_size, stratify=origin, random_state=seed)
     rf = RandomForestClassifier(n_estimators=500, random_state=seed, class_weight="balanced", n_jobs=-1)
     rf.fit(X_train, y_train)
     auc = roc_auc_score(y_test, rf.predict_proba(X_test)[:, 1])
@@ -40,6 +47,21 @@ def mean_kld_by_feature(X_real, X_syn, bins=30):
         p = p + 1e-10
         q = q + 1e-10
         vals.append(float(entropy(p / p.sum(), q / q.sum())))
+    return np.asarray(vals, dtype=float)
+
+def ks_by_feature(X_real, X_syn):
+    X_real = np.asarray(X_real, dtype=float)
+    X_syn = np.asarray(X_syn, dtype=float)
+    vals = []
+    for j in range(X_real.shape[1]):
+        real = X_real[:, j]
+        syn = X_syn[:, j]
+        real = real[np.isfinite(real)]
+        syn = syn[np.isfinite(syn)]
+        if len(real) == 0 or len(syn) == 0:
+            vals.append(np.nan)
+            continue
+        vals.append(float(ks_2samp(real, syn).statistic))
     return np.asarray(vals, dtype=float)
 
 def nn_distance_mean(X_real, X_syn):

@@ -55,7 +55,11 @@ def get_auc_runs(force=False):
 def get_metric_table(force=False):
     cached = None if force else _read_cache("metric_table")
     if cached is not None:
-        return cached
+        required_cols = {"mean_feature_ks"}
+        if required_cols.issubset(set(cached.columns)):
+            return cached
+        missing = ", ".join(sorted(required_cols - set(cached.columns)))
+        print(f"[cache] metric_table cache is missing {missing}; recomputing.")
     from src.revision.figure3_metric_summary import build_metric_table
     auc_runs = get_auc_runs(force=force)
     return _write_cache("metric_table", build_metric_table(require_datasets(), auc_runs))

@@ -5,11 +5,12 @@ import contextlib
 import io
 
 from src.revision.common import *
-from src.revision.stats import mean_kld_by_feature
+from src.revision.stats import ks_by_feature, mean_kld_by_feature
 
 
 SCORE_METRIC_NAMES = ["AUC", "Utility"]
 KLD_METRIC_NAME = "KLD"
+KS_METRIC_NAME = "KS"
 METRIC_SPACING = 1.95
 GENERATOR_OFFSETS = np.linspace(-0.62, 0.62, len(METHOD_ORDER))
 GENERATOR_VIOLIN_WIDTH = 0.24
@@ -46,6 +47,17 @@ def _feature_kld_values(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
         with contextlib.redirect_stdout(io.StringIO()):
             X_syn, _ = sample_synthetic(dataset, data, method, seed=seed, cvae_epochs=cvae_epochs)
         out.append(mean_kld_by_feature(X_real, X_syn))
+    return out
+
+
+def _feature_ks_values(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+    data = require_datasets()[dataset]
+    X_real = np.asarray(data["X"], dtype=np.float32)
+    out = []
+    for method in METHOD_ORDER:
+        with contextlib.redirect_stdout(io.StringIO()):
+            X_syn, _ = sample_synthetic(dataset, data, method, seed=seed, cvae_epochs=cvae_epochs)
+        out.append(ks_by_feature(X_real, X_syn))
     return out
 
 
@@ -96,6 +108,20 @@ def _set_kld_limits(ax, kld_values):
         return
     upper = float(np.nanmax(finite))
     ax.set_ylim(0, upper * 1.10 if upper > 0 else 1)
+
+
+def _set_positive_metric_limits(ax, values, upper_bound=None):
+    finite_groups = [np.asarray(v, dtype=float)[np.isfinite(v)] for v in values]
+    finite_groups = [v for v in finite_groups if len(v) > 0]
+    if not finite_groups:
+        ax.set_ylim(0, upper_bound or 1)
+        return
+    finite = np.concatenate(finite_groups)
+    upper = float(np.nanmax(finite))
+    if upper_bound is not None:
+        ax.set_ylim(0, upper_bound)
+    else:
+        ax.set_ylim(0, upper * 1.10 if upper > 0 else 1)
 
 
 def _draw_metric_label(ax, x, label):
@@ -182,4 +208,37 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
         ax.tick_params(axis="x", length=0, pad=4)
 
     fig.subplots_adjust(left=0.1, right=0.85, top=0.9, bottom=0.33)
+    return fig
+
+
+def plot_feature_ks_violin(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+    """Plot feature-wise two-sample KS statistics across generators."""
+    ks_values = _feature_ks_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
+
+    fig, ax = plt.subplots(figsize=(5.4, 3.75), constrained_layout=False)
+    positions = []
+    labels = []
+    center = 0
+    for offset, method, vals in zip(GENERATOR_OFFSETS, METHOD_ORDER, ks_values):
+        pos = center + offset
+        positions.append(pos)
+        labels.append(METHOD_TICK_LABELS[method])
+        _draw_distribution_at(ax, pos, vals, method)
+
+    ax.set_xlim(center - METRIC_SPACING / 2, center + METRIC_SPACING / 2)
+    _set_positive_metric_limits(ax, ks_values, upper_bound=1.0)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, fontsize=7.2, linespacing=0.9)
+    _draw_metric_label(ax, center, KS_METRIC_NAME)
+    ax.set_ylabel("KS statistic", labelpad=4)
+    ax.set_title(dataset, color=DATASET_COLORS.get(dataset, NEUTRAL), weight="bold", pad=8)
+
+    clean_axis(ax, grid_axis="y")
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.2)
+    ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
+    ax.tick_params(axis="x", length=0, pad=4)
+
+    fig.subplots_adjust(left=0.16, right=0.97, top=0.86, bottom=0.30)
     return fig

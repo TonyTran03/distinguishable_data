@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import pyreadr
 from IPython.display import display, Markdown
 from matplotlib.patches import Circle, Ellipse, FancyArrowPatch, FancyBboxPatch, Rectangle
-from scipy.stats import chi2, entropy, ttest_ind
+from scipy.stats import chi2, entropy, ks_2samp, ttest_ind
 from sklearn.datasets import load_breast_cancer, fetch_openml, load_diabetes
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier

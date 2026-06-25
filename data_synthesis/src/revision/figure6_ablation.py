@@ -1140,21 +1140,10 @@ def plot_figure6_ablation_ac(ablation_df):
                 legend_handles.append(line)
 
         ax_curve.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
-        ax_curve.set_title("")
+        ax_curve.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", pad=8, fontsize=13)
         max_removed = int(sub["n_features_removed"].max())
         ax_curve.set_xlim(-1, max_removed + 1)
         ax_curve.set_xlabel("Number of features removed", labelpad=6)
-        ax_curve.text(
-            0.5,
-            -0.34,
-            ds,
-            transform=ax_curve.transAxes,
-            ha="center",
-            va="top",
-            color=DATASET_COLORS[ds],
-            weight="semibold",
-            fontsize=13,
-        )
         clean_axis(ax_curve, grid_axis="y")
         ax_curve.spines["left"].set_linewidth(1.8)
         ax_curve.spines["bottom"].set_linewidth(1.8)
@@ -1174,12 +1163,10 @@ def plot_figure6_ablation_ac(ablation_df):
         if ax.get_visible():
             ax.set_ylim(y_min, y_max)
 
-    handles = legend_handles[:len(METHOD_ORDER)]
-    fig.legend(handles, [h.get_label() for h in handles], loc="upper center",
-               bbox_to_anchor=(0.5, 0.985), ncol=len(handles), frameon=False,
-               borderpad=0.25, columnspacing=1.05, handlelength=1.55, handletextpad=0.45)
+    legend_ax = curve_axes[0]
+    _add_inline_method_legend(legend_ax)
     fig.suptitle("Reverse feature ablation", y=0.98, fontsize=15, weight="semibold")
-    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.31, wspace=0.18)
+    fig.subplots_adjust(left=0.075, right=0.99, top=0.80, bottom=0.18, wspace=0.18)
     return fig
 
 def _flat_values(series):
@@ -1188,9 +1175,46 @@ def _flat_values(series):
         vals.extend(item if isinstance(item, (list, tuple, np.ndarray)) else [item])
     return np.asarray(vals, dtype=float)
 
+
+def _add_inline_method_legend(ax):
+    ax.text(
+        0.04,
+        0.155,
+        "Synthetic generation:",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=7.2,
+        color="#333333",
+    )
+    x_positions = [0.04, 0.28, 0.55, 0.72]
+    for x, method in zip(x_positions, METHOD_ORDER):
+        ax.text(
+            x,
+            0.085,
+            method,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=7.2,
+            color=METHOD_COLORS[method],
+            weight="semibold",
+        )
+
 def plot_figure6_ablation_all_datasets(ablation_df):
-    fig, curve_axes = plt.subplots(1, len(DATASET_ORDER), figsize=(13.4, 3.85), sharey=True)
-    curve_axes = list(np.ravel(curve_axes))
+    fig = plt.figure(figsize=(13.4, 7.2), constrained_layout=False)
+    gs = fig.add_gridspec(
+        2,
+        4,
+        height_ratios=[1.18, 1.0],
+        hspace=0.52,
+        wspace=0.34,
+    )
+    curve_axes = [
+        fig.add_subplot(gs[0, :]),
+        fig.add_subplot(gs[1, 0:2]),
+        fig.add_subplot(gs[1, 2:4]),
+    ]
 
     legend_handles = []
     for panel_idx, (ax_curve, ds) in enumerate(zip(curve_axes, DATASET_ORDER)):
@@ -1210,7 +1234,7 @@ def plot_figure6_ablation_all_datasets(ablation_df):
                 legend_handles.append(line)
 
         ax_curve.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
-        ax_curve.set_title("")
+        ax_curve.set_title(ds, color=DATASET_COLORS[ds], weight="semibold", pad=8, fontsize=13)
 
         max_removed = int(sub["n_features_removed"].max())
         min_removed = int(sub["n_features_removed"].min())
@@ -1221,17 +1245,6 @@ def plot_figure6_ablation_all_datasets(ablation_df):
         ax_curve.set_xlim(min_removed - x_pad, max_removed + x_pad)
 
         ax_curve.set_xlabel("Number of features removed", labelpad=6)
-        ax_curve.text(
-            0.5,
-            -0.34,
-            ds,
-            transform=ax_curve.transAxes,
-            ha="center",
-            va="top",
-            color=DATASET_COLORS[ds],
-            weight="semibold",
-            fontsize=13,
-        )
         clean_axis(ax_curve, grid_axis="y")
 
         for spine in ax_curve.spines.values():
@@ -1241,9 +1254,9 @@ def plot_figure6_ablation_all_datasets(ablation_df):
         ax_curve.tick_params(labelsize=9.0, width=1.2, length=4)
 
     curve_axes[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    for ax in curve_axes[1:]:
-        ax.set_ylabel("") 
-        ax.tick_params(labelleft=True) 
+    curve_axes[1].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
+    curve_axes[2].set_ylabel("")
+    curve_axes[2].tick_params(labelleft=True)
 
     y_values = []
     for _, row in ablation_df.iterrows():
@@ -1255,11 +1268,9 @@ def plot_figure6_ablation_all_datasets(ablation_df):
         if ax.get_visible():
             ax.set_ylim(y_min, y_max)
 
-    handles = legend_handles[:len(METHOD_ORDER)]
-    fig.legend(handles, [h.get_label() for h in handles], loc="upper center",
-               bbox_to_anchor=(0.5, 0.985), ncol=len(handles), frameon=False,
-               borderpad=0.25, columnspacing=1.05, handlelength=1.55, handletextpad=0.45)
+    legend_ax = curve_axes[0]
+    _add_inline_method_legend(legend_ax)
     # fig.suptitle("Reverse feature ablation", y=0.98, fontsize=15, weight="semibold")
 
-    fig.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.31, wspace=0.18)
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.94, bottom=0.10)
     return fig
