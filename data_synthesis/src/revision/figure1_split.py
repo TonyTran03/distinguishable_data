@@ -8,7 +8,7 @@ from src.revision.common import *
 from src.revision.stats import ks_by_feature, mean_kld_by_feature
 
 
-SCORE_METRIC_NAMES = ["AUC", "Utility"]
+SCORE_METRIC_NAMES = ["AUC"]
 KLD_METRIC_NAME = "KLD"
 KS_METRIC_NAME = "KS"
 METRIC_SPACING = 1.95
@@ -139,22 +139,14 @@ def _draw_metric_label(ax, x, label):
 
 
 def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
-    """Plot AUC/TSTR scores and raw feature-wise KLD on separate axes."""
+    """Plot discriminator AUC distributions for one selected dataset."""
     sub = _dataset_metric_table(metric_table, dataset)
     score_centers = np.arange(len(SCORE_METRIC_NAMES), dtype=float) * METRIC_SPACING
     score_values = {
         "AUC": [_coerce_values(v) for v in sub["rf_auc_values"]],
-        "Utility": [_coerce_values(v) for v in sub["tstr_f1_values"]],
     }
-    kld_values = _feature_kld_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
 
-    fig, (score_ax, kld_ax) = plt.subplots(
-        1,
-        2,
-        figsize=(11.4, 3.75),
-        constrained_layout=False,
-        gridspec_kw={"width_ratios": [2.0, 1.05], "wspace": 0.16},
-    )
+    fig, score_ax = plt.subplots(1, 1, figsize=(4.8, 3.75), constrained_layout=False)
     score_positions = []
     score_labels = []
     left_edge = score_centers[0] - METRIC_SPACING / 2
@@ -173,6 +165,38 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
             score_labels.append(METHOD_TICK_LABELS[method])
             _draw_distribution_at(score_ax, pos, vals, method)
 
+    score_ax.set_xlim(left_edge, right_edge)
+    score_ax.set_ylim(-0.02, 1.03)
+    score_ax.set_xticks(score_positions)
+    score_ax.set_xticklabels(score_labels, fontsize=7.2, linespacing=0.9)
+    for center, metric in zip(score_centers, SCORE_METRIC_NAMES):
+        _draw_metric_label(score_ax, center, metric)
+    score_ax.set_ylabel("Score", labelpad=6)
+
+    clean_axis(score_ax, grid_axis="y")
+    for spine in score_ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.2)
+    score_ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
+    score_ax.tick_params(axis="x", length=0, pad=4)
+
+    fig.subplots_adjust(left=0.13, right=0.97, top=0.9, bottom=0.33)
+    return fig
+
+
+def plot_figure1_marginal_metrics(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
+    """Plot feature-wise KLD and KS distributions for one selected dataset."""
+    kld_values = _feature_kld_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
+    ks_values = _feature_ks_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
+
+    fig, (kld_ax, ks_ax) = plt.subplots(
+        1,
+        2,
+        figsize=(7.4, 3.75),
+        constrained_layout=False,
+        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.24},
+    )
+
     kld_center = 0
     kld_positions = []
     kld_labels = []
@@ -182,13 +206,14 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
         kld_labels.append(METHOD_TICK_LABELS[method])
         _draw_distribution_at(kld_ax, pos, vals, method)
 
-    score_ax.set_xlim(left_edge, right_edge)
-    score_ax.set_ylim(-0.02, 1.03)
-    score_ax.set_xticks(score_positions)
-    score_ax.set_xticklabels(score_labels, fontsize=7.2, linespacing=0.9)
-    for center, metric in zip(score_centers, SCORE_METRIC_NAMES):
-        _draw_metric_label(score_ax, center, metric)
-    score_ax.set_ylabel("Score", labelpad=6)
+    ks_center = 0
+    ks_positions = []
+    ks_labels = []
+    for offset, method, vals in zip(GENERATOR_OFFSETS, METHOD_ORDER, ks_values):
+        pos = ks_center + offset
+        ks_positions.append(pos)
+        ks_labels.append(METHOD_TICK_LABELS[method])
+        _draw_distribution_at(ks_ax, pos, vals, method)
 
     kld_ax.set_xlim(kld_center - METRIC_SPACING / 2, kld_center + METRIC_SPACING / 2)
     _set_kld_limits(kld_ax, kld_values)
@@ -199,7 +224,16 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
     kld_ax.yaxis.set_label_position("left")
     kld_ax.yaxis.tick_left()
 
-    for ax in (score_ax, kld_ax):
+    ks_ax.set_xlim(ks_center - METRIC_SPACING / 2, ks_center + METRIC_SPACING / 2)
+    _set_positive_metric_limits(ks_ax, ks_values, upper_bound=1.0)
+    ks_ax.set_xticks(ks_positions)
+    ks_ax.set_xticklabels(ks_labels, fontsize=7.2, linespacing=0.9)
+    _draw_metric_label(ks_ax, ks_center, KS_METRIC_NAME)
+    ks_ax.set_ylabel("KS statistic", labelpad=4)
+    ks_ax.yaxis.set_label_position("left")
+    ks_ax.yaxis.tick_left()
+
+    for ax in (kld_ax, ks_ax):
         clean_axis(ax, grid_axis="y")
         for spine in ax.spines.values():
             spine.set_visible(True)
@@ -207,7 +241,7 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
         ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
         ax.tick_params(axis="x", length=0, pad=4)
 
-    fig.subplots_adjust(left=0.1, right=0.85, top=0.9, bottom=0.33)
+    fig.subplots_adjust(left=0.12, right=0.97, top=0.9, bottom=0.33)
     return fig
 
 
@@ -231,8 +265,6 @@ def plot_feature_ks_violin(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     ax.set_xticklabels(labels, fontsize=7.2, linespacing=0.9)
     _draw_metric_label(ax, center, KS_METRIC_NAME)
     ax.set_ylabel("KS statistic", labelpad=4)
-    ax.set_title(dataset, color=DATASET_COLORS.get(dataset, NEUTRAL), weight="bold", pad=8)
-
     clean_axis(ax, grid_axis="y")
     for spine in ax.spines.values():
         spine.set_visible(True)

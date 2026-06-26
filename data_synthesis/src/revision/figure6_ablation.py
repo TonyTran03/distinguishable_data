@@ -1201,20 +1201,61 @@ def _add_inline_method_legend(ax):
             weight="semibold",
         )
 
+def plot_figure6_ablation_dataset(ablation_df, dataset):
+    fig, ax_curve = plt.subplots(1, 1, figsize=(4.8, 4.8), constrained_layout=False)
+    sub = ablation_df[ablation_df["dataset"] == dataset]
+    if sub.empty:
+        ax_curve.set_visible(False)
+        return fig
+
+    for method in METHOD_ORDER:
+        m = sub[sub["method"] == method].sort_values("n_features_removed")
+        if m.empty:
+            continue
+        n_removed = m["n_features_removed"]
+        ax_curve.plot(n_removed, m["auc_mean"], color=METHOD_COLORS[method], marker="o", linewidth=2.35, markersize=5.2, label=method)
+        ax_curve.fill_between(n_removed, m["auc_mean"] - m["auc_sd"], m["auc_mean"] + m["auc_sd"], color=METHOD_COLORS[method], alpha=0.12, linewidth=0)
+
+    ax_curve.axhline(0.5, color="#777777", linestyle="--", linewidth=1.25)
+    ax_curve.set_title(dataset, color=DATASET_COLORS[dataset], weight="semibold", pad=8, fontsize=13)
+
+    max_removed = int(sub["n_features_removed"].max())
+    min_removed = int(sub["n_features_removed"].min())
+    x_range = max_removed - min_removed
+    x_pad = max(0.35, 0.06 * x_range)
+    ax_curve.set_xlim(min_removed - x_pad, max_removed + x_pad)
+    ax_curve.set_xlabel("Number of features removed", labelpad=6)
+    ax_curve.set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
+
+    y_values = []
+    for _, row in sub.iterrows():
+        y_values.extend([row["auc_mean"] - row["auc_sd"], row["auc_mean"] + row["auc_sd"]])
+        y_values.extend(row.get("auc_values", []))
+    y_min = max(0.45, np.nanmin(y_values) - 0.03)
+    y_max = min(1.02, np.nanmax(y_values) + 0.03)
+    ax_curve.set_ylim(y_min, y_max)
+
+    clean_axis(ax_curve, grid_axis="y")
+    ax_curve.set_box_aspect(1)
+    for spine in ax_curve.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.2)
+    ax_curve.tick_params(labelsize=9.0, width=1.2, length=4)
+    if dataset == "HIV":
+        _add_inline_method_legend(ax_curve)
+
+    fig.subplots_adjust(left=0.16, right=0.96, top=0.88, bottom=0.16)
+    return fig
+
 def plot_figure6_ablation_all_datasets(ablation_df):
-    fig = plt.figure(figsize=(13.4, 7.2), constrained_layout=False)
-    gs = fig.add_gridspec(
-        2,
-        4,
-        height_ratios=[1.18, 1.0],
-        hspace=0.52,
-        wspace=0.34,
+    fig, curve_axes = plt.subplots(
+        len(DATASET_ORDER),
+        1,
+        figsize=(5.2, 12.0),
+        sharey=True,
+        constrained_layout=False,
     )
-    curve_axes = [
-        fig.add_subplot(gs[0, :]),
-        fig.add_subplot(gs[1, 0:2]),
-        fig.add_subplot(gs[1, 2:4]),
-    ]
+    curve_axes = list(np.ravel(curve_axes))
 
     legend_handles = []
     for panel_idx, (ax_curve, ds) in enumerate(zip(curve_axes, DATASET_ORDER)):
@@ -1246,6 +1287,7 @@ def plot_figure6_ablation_all_datasets(ablation_df):
 
         ax_curve.set_xlabel("Number of features removed", labelpad=6)
         clean_axis(ax_curve, grid_axis="y")
+        ax_curve.set_box_aspect(1)
 
         for spine in ax_curve.spines.values():
             spine.set_visible(True)
@@ -1253,10 +1295,8 @@ def plot_figure6_ablation_all_datasets(ablation_df):
 
         ax_curve.tick_params(labelsize=9.0, width=1.2, length=4)
 
-    curve_axes[0].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    curve_axes[1].set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
-    curve_axes[2].set_ylabel("")
-    curve_axes[2].tick_params(labelleft=True)
+    for ax in curve_axes:
+        ax.set_ylabel(r"$\langle \mathrm{AUC} \rangle$")
 
     y_values = []
     for _, row in ablation_df.iterrows():
@@ -1272,5 +1312,5 @@ def plot_figure6_ablation_all_datasets(ablation_df):
     _add_inline_method_legend(legend_ax)
     # fig.suptitle("Reverse feature ablation", y=0.98, fontsize=15, weight="semibold")
 
-    fig.subplots_adjust(left=0.075, right=0.985, top=0.94, bottom=0.10)
+    fig.subplots_adjust(left=0.16, right=0.96, top=0.97, bottom=0.06, hspace=0.48)
     return fig
