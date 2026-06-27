@@ -507,8 +507,11 @@ def plot_edge_status_examples(
         bbox_to_anchor=(0.5, 0.905),
         ncol=4,
         frameon=False,
-        fontsize=8.5,
-        columnspacing=1.35,
+        fontsize=11.0,
+        handlelength=1.8,
+        handleheight=1.1,
+        handletextpad=0.55,
+        columnspacing=1.55,
     )
     fig.suptitle(
         f"Reading edge-status matrices for {exemplar_ds}",
@@ -877,10 +880,11 @@ def plot_figure4_edge_status_matrices(
         bbox_to_anchor=(0.5, 0.060),
         ncol=4,
         frameon=False,
-        fontsize=9.2,
-        handlelength=1.55,
-        handletextpad=0.48,
-        columnspacing=1.18,
+        fontsize=11.2,
+        handlelength=1.8,
+        handleheight=1.1,
+        handletextpad=0.55,
+        columnspacing=1.35,
         borderaxespad=0.3,
     )
 

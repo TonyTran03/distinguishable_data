@@ -302,7 +302,7 @@ def _draw_rf_importance_tsne_panel(
             zorder=6,
         )
 
-    ax.set_title(method, color=METHOD_COLORS[method], weight="semibold", fontsize=11.2, pad=7)
+    ax.set_title(method, color=METHOD_COLORS[method], weight="semibold", fontsize=11.2, pad=12, y=1.02)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -331,13 +331,17 @@ def plot_rf_importance_tsne_edge_overlay(
     real_partial = precision_to_partial_corr(theta_real)
     real_edges = get_edge_set(real_partial, edge_threshold)
     coords, _, perplexity = _fit_profile_tsne(real_partial, seed=seed)
+    coord_pad_x = 0.06 * max(1e-9, float(np.ptp(coords[:, 0])))
+    coord_pad_y = 0.06 * max(1e-9, float(np.ptp(coords[:, 1])))
+    coord_xlim = (float(np.min(coords[:, 0]) - coord_pad_x), float(np.max(coords[:, 0]) + coord_pad_x))
+    coord_ylim = (float(np.min(coords[:, 1]) - coord_pad_y), float(np.max(coords[:, 1]) + coord_pad_y))
 
     fig = plt.figure(figsize=(11.8, 9.7), constrained_layout=False)
-    gs = fig.add_gridspec(2, 2, hspace=0.16, wspace=0.12)
+    gs = fig.add_gridspec(2, 2, hspace=0.12, wspace=0.0)
     axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(2)]
     rows = []
 
-    for ax, method, panel in zip(axes, METHOD_ORDER, ["A", "B", "C", "D"]):
+    for ax, method in zip(axes, METHOD_ORDER):
         X_syn, _ = sample_synthetic(dataset, data, method, seed=seed, cvae_epochs=cvae_epochs)
         X_syn = np.asarray(X_syn, dtype=np.float32)
         importance, ranks, ranking = discriminator_feature_importance(X_real, X_syn, seed=seed)
@@ -357,16 +361,8 @@ def plot_rf_importance_tsne_edge_overlay(
             top_features=top_features,
             max_edges_per_feature=max_edges_per_feature,
         )
-        ax.text(
-            -0.08,
-            1.06,
-            panel,
-            transform=ax.transAxes,
-            fontsize=15,
-            weight="bold",
-            va="top",
-            ha="left",
-        )
+        ax.set_xlim(*coord_xlim)
+        ax.set_ylim(*coord_ylim)
         for rank_position, feature in enumerate(ranking[: int(top_features)], start=1):
             rows.append(
                 {
@@ -384,10 +380,10 @@ def plot_rf_importance_tsne_edge_overlay(
             )
 
     handles = [
-        Line2D([0], [0], color=EDGE_COLORS["preserved"], linewidth=3.0, label="Preserved edge"),
-        Line2D([0], [0], color=EDGE_COLORS["real_only"], linewidth=3.0, label="Real-only / lost"),
-        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], linewidth=3.0, label="Synthetic-only"),
-        Line2D([0], [0], marker="o", color="#6A6A6A", markerfacecolor="#F8F8F8", linewidth=0, markersize=7, label="Feature"),
+        Line2D([0], [0], color=EDGE_COLORS["preserved"], linewidth=4.0, label="Preserved edge"),
+        Line2D([0], [0], color=EDGE_COLORS["real_only"], linewidth=4.0, label="Real-only / lost"),
+        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], linewidth=4.0, label="Synthetic-only"),
+        Line2D([0], [0], marker="o", color="#6A6A6A", markerfacecolor="#F8F8F8", linewidth=0, markersize=9, label="Feature"),
     ]
     fig.legend(
         handles=handles,
@@ -398,8 +394,11 @@ def plot_rf_importance_tsne_edge_overlay(
         facecolor="white",
         edgecolor="black",
         framealpha=0,
-        borderpad=0.55,
-        fontsize=8.7,
+        borderpad=0.65,
+        fontsize=11.0,
+        handlelength=2.1,
+        handletextpad=0.65,
+        columnspacing=1.45,
     )
     fig.suptitle(
         f"{dataset}: RF-important features on Graphical Lasso t-SNE (perplexity={perplexity:.0f})",
