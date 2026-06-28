@@ -302,7 +302,6 @@ def _draw_rf_importance_tsne_panel(
             zorder=6,
         )
 
-    ax.set_title(method, color=METHOD_COLORS[method], weight="semibold", fontsize=11.2, pad=12, y=1.02)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -331,13 +330,9 @@ def plot_rf_importance_tsne_edge_overlay(
     real_partial = precision_to_partial_corr(theta_real)
     real_edges = get_edge_set(real_partial, edge_threshold)
     coords, _, perplexity = _fit_profile_tsne(real_partial, seed=seed)
-    coord_pad_x = 0.06 * max(1e-9, float(np.ptp(coords[:, 0])))
-    coord_pad_y = 0.06 * max(1e-9, float(np.ptp(coords[:, 1])))
-    coord_xlim = (float(np.min(coords[:, 0]) - coord_pad_x), float(np.max(coords[:, 0]) + coord_pad_x))
-    coord_ylim = (float(np.min(coords[:, 1]) - coord_pad_y), float(np.max(coords[:, 1]) + coord_pad_y))
 
     fig = plt.figure(figsize=(11.8, 9.7), constrained_layout=False)
-    gs = fig.add_gridspec(2, 2, hspace=0.12, wspace=0.0)
+    gs = fig.add_gridspec(2, 2, hspace=0.0, wspace=0.0)
     axes = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(2)]
     rows = []
 
@@ -361,8 +356,6 @@ def plot_rf_importance_tsne_edge_overlay(
             top_features=top_features,
             max_edges_per_feature=max_edges_per_feature,
         )
-        ax.set_xlim(*coord_xlim)
-        ax.set_ylim(*coord_ylim)
         for rank_position, feature in enumerate(ranking[: int(top_features)], start=1):
             rows.append(
                 {
@@ -407,6 +400,20 @@ def plot_rf_importance_tsne_edge_overlay(
         weight="semibold",
     )
     fig.subplots_adjust(left=0.045, right=0.99, top=0.93, bottom=0.095)
+    for ax, method, placement in zip(axes, METHOD_ORDER, ["top", "top", "bottom", "bottom"]):
+        pos = ax.get_position()
+        x = (pos.x0 + pos.x1) / 2
+        y = pos.y1 + 0.018 if placement == "top" else pos.y0 - 0.020
+        fig.text(
+            x,
+            y,
+            method,
+            ha="center",
+            va="bottom" if placement == "top" else "top",
+            color=METHOD_COLORS[method],
+            weight="semibold",
+            fontsize=11.2,
+        )
     return fig, pd.DataFrame(rows)
 
 
