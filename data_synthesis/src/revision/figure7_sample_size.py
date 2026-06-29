@@ -30,7 +30,7 @@ from src.revision.cache import _read_cache, _write_cache
 from src.revision.stats import one_run_origin_auc, stratified_subsample
 
 
-DEFAULT_FRACTIONS = (0.2, 0.3, 0.4, 0.5, 0.75, 1.0)
+DEFAULT_FRACTIONS = (0.0, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0)
 
 
 def _fraction_class_counts(y, fraction):
@@ -85,11 +85,18 @@ def compute_sample_size_auc_table(
                 cvae_state = None
                 if "CVAE" in METHOD_ORDER:
                     print(f"[sample size] training CVAE: {dataset} fraction={fraction:g} split={split}")
+                    cvae_val_size = max(2, int(np.ceil(0.2 * len(y_sub))))
+                    cvae_val_size = min(cvae_val_size, len(y_sub) - 2)
                     with contextlib.redirect_stdout(io.StringIO()):
                         cvae_state = train_cvae(
                             X_sub,
                             y_sub,
-                            cfg=Config(seed=split_seed, epochs=cvae_epochs, batch_size=32),
+                            cfg=Config(
+                                seed=split_seed,
+                                epochs=cvae_epochs,
+                                batch_size=32,
+                                test_size=cvae_val_size,
+                            ),
                             verbose=False,
                         )
 
@@ -141,7 +148,11 @@ def get_sample_size_auc(
 ):
     cached = None if force else _read_cache("sample_size_auc")
     if cached is not None:
-        return cached
+        requested = {round(float(frac), 8) for frac in fractions}
+        cached_fractions = {round(float(frac), 8) for frac in cached["fraction"].dropna().unique()}
+        if requested.issubset(cached_fractions):
+            return cached
+        print("[sample size] cache missing requested fractions; recomputing.")
     if datasets is None:
         from src.revision.common import require_datasets
 
@@ -206,9 +217,9 @@ def _plot_dataset_sample_size_panel(ax, summary, dataset, panel=None):
     ax.set_title(dataset, color=DATASET_COLORS[dataset], weight="bold", fontsize=11.5, pad=8)
     ax.set_xlabel("Real data used to train generator (%)")
     ax.set_ylim(0.45, 1.03)
-    ax.set_xlim(100, 2)
-    ax.set_xticks([100, 75, 50, 25, 2])
-    ax.set_xticklabels(["100%", "75%", "50%", "25%", "2"])
+    ax.set_xlim(100, 0)
+    ax.set_xticks([100, 75, 50, 25, 0])
+    ax.set_xticklabels(["100%", "75%", "50%", "25%", "0%"])
     clean_axis(ax, grid_axis="y")
     for spine in ax.spines.values():
         spine.set_visible(True)

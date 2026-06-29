@@ -3,8 +3,54 @@
 import contextlib
 import io
 
+from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
+
 from src.revision.common import *
 from src.revision.stats import one_run_origin_auc
+
+
+def _circle_marker_box(facecolor, edgecolor="none", alpha=1.0):
+    box = DrawingArea(13, 10, 0, 0)
+    marker = Circle((5.5, 5), 2.6, facecolor=facecolor, edgecolor=edgecolor, linewidth=0.75, alpha=alpha)
+    box.add_artist(marker)
+    return box
+
+
+def _add_pca_legend(ax, ds, method, syn_color):
+    text_props = {"fontsize": 7.2}
+    real_row = HPacker(
+        children=[
+            _circle_marker_box("none", edgecolor="#8A8A8A", alpha=0.9),
+            TextArea("Real data ", textprops={**text_props, "color": "black"}),
+            TextArea(f"({ds})", textprops={**text_props, "color": DATASET_COLORS[ds]}),
+        ],
+        align="center",
+        pad=0,
+        sep=1,
+    )
+    synthetic_row = HPacker(
+        children=[
+            _circle_marker_box(syn_color, alpha=0.74),
+            TextArea(f"{method} synthetic data", textprops={**text_props, "color": syn_color}),
+        ],
+        align="center",
+        pad=0,
+        sep=1,
+    )
+    legend_box = VPacker(children=[real_row, synthetic_row], align="left", pad=0, sep=1)
+    anchored = AnchoredOffsetbox(
+        loc="upper left",
+        child=legend_box,
+        pad=0.25,
+        borderpad=0.25,
+        frameon=True,
+        bbox_to_anchor=(0.025, 0.975),
+        bbox_transform=ax.transAxes,
+    )
+    anchored.patch.set_facecolor("white")
+    anchored.patch.set_edgecolor("#BDBDBD")
+    anchored.patch.set_alpha(0.92)
+    ax.add_artist(anchored)
 
 def plot_figure2_cvae_pca(datasets, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     fig, axes = plt.subplots(1, 3, figsize=(13.6, 3.85))
@@ -148,10 +194,7 @@ def _plot_pca_panel(
         ax.text(0.045, 0.055, f"n={len(data['y'])}, p={X_real.shape[1]}", transform=ax.transAxes,
                 color=syn_color, fontsize=8.5, weight="bold", ha="left", va="bottom")
     if show_legend:
-        legend = ax.legend(loc="upper left", bbox_to_anchor=(0.025, 0.975), frameon=True, facecolor="white", edgecolor="#BDBDBD",
-                           framealpha=0.92, fontsize=7.8, handlelength=1.2, borderpad=0.35,
-                           labelspacing=0.25, handletextpad=0.35, borderaxespad=0.35)
-        legend.get_texts()[0].set_color(DATASET_COLORS[ds])
+        _add_pca_legend(ax, ds, method, syn_color)
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(1.2)
@@ -271,10 +314,8 @@ def plot_figure2_method_pca_grid(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     for row in range(2):
         for col in range(2):
             ax = axes[row, col]
-            ax.set_xticks([-15,-10,-5,0, 5, 10,15])
-            ax.set_yticks([-15,-10,-5,0, 5, 10,15])
-            ax.set_xticklabels(["-15","-10","-5","0", "5", "10","15"])
-            ax.set_yticklabels(["-15","-10","-5","0", "5", "10","15"])
+            ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(nbins=5, prune="upper" if col == 0 else "lower"))
+            ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(nbins=5, prune="lower" if row == 0 else "upper"))
             ax.tick_params(
                 axis="x",
                 top=row == 0,

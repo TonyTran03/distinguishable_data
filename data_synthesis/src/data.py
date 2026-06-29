@@ -59,8 +59,22 @@ def make_loaders(
 ) -> Tuple[DataLoader, DataLoader, StandardScaler]:
 
     # Split first 
+    y = np.asarray(y)
+    classes, class_counts = np.unique(y, return_counts=True)
+    n_classes = len(classes)
+    if np.min(class_counts) < 2:
+        raise ValueError(
+            "Stratified train/validation split requires at least two samples "
+            f"per class; got counts {dict(zip(classes.tolist(), class_counts.tolist()))}."
+        )
+    if isinstance(test_size, float):
+        val_size = int(np.ceil(test_size * len(y)))
+    else:
+        val_size = int(test_size)
+    val_size = max(n_classes, val_size)
+    val_size = min(val_size, len(y) - n_classes)
     X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=test_size, random_state=seed, stratify=y
+        X, y, test_size=val_size, random_state=seed, stratify=y
     )
 
     # Instantiate transform

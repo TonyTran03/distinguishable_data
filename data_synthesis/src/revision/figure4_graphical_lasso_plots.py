@@ -924,6 +924,175 @@ def plot_figure4_edge_status_matrices(
     return result
 
 
+def plot_figure4_edge_status_all_datasets(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_order=None,
+    method_order=None,
+    comparison_methods=None,
+    threshold=1e-7,
+    save_path=None,
+):
+    """Plot categorical Graphical Lasso edge status for every dataset and method.
+
+    Rows are datasets and columns are synthesis methods. Feature order is derived
+    once from each dataset's real partial-correlation structure and then reused
+    across every method in that row, making within-dataset comparisons valid.
+    """
+    dataset_order = list(dataset_order or real_data.keys())
+    method_order = list(method_order or synthetic_data[dataset_order[0]].keys())
+    comparison_methods = list(
+        comparison_methods or ["Bootstrap", "Column-wise", "CVAE", "GMM"]
+    )
+    comparison_methods = [method for method in comparison_methods if method in method_order]
+    if not comparison_methods:
+        raise ValueError("No requested comparison methods are present in method_order.")
+
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    n_rows = len(dataset_order)
+    n_cols = len(comparison_methods)
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(3.15 * n_cols + 1.2, 3.15 * n_rows + 1.35),
+        squeeze=False,
+        constrained_layout=False,
+    )
+    fig.patch.set_facecolor("white")
+    cmap = ListedColormap([
+        STATUS_COLORS["absent"],
+        STATUS_COLORS["preserved"],
+        STATUS_COLORS["real_only"],
+        STATUS_COLORS["synthetic_only"],
+    ])
+
+    panel_letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    feature_index_tables = []
+    panel_idx = 0
+
+    for row, dataset in enumerate(dataset_order):
+        names = list(feature_names[dataset] if isinstance(feature_names, Mapping) else feature_names)
+        real = structures[dataset]["real"]
+        real_edges = real["edges"]
+        order = get_real_structure_order(real["partial"])
+        n_features = real["partial"].shape[0]
+        feature_index_tables.append(
+            make_feature_index_table(names, order).assign(dataset=dataset)
+        )
+
+        tick_step = 1 if n_features <= 12 else 5 if n_features <= 35 else 10
+        ticks = np.arange(0, n_features, tick_step)
+        tick_labels = [str(index + 1) for index in ticks]
+
+        for col, method in enumerate(comparison_methods):
+            ax = axes[row, col]
+            synthetic_edges = structures[dataset]["synthetic"][method]["edges"]
+            status = build_edge_status_matrix(real_edges, synthetic_edges, n_features)
+            ordered_status = status[np.ix_(order, order)]
+            ax.imshow(
+                ordered_status,
+                cmap=cmap,
+                vmin=-0.5,
+                vmax=3.5,
+                interpolation="nearest",
+                aspect="equal",
+            )
+
+            ax.set_xticks(ticks)
+            ax.set_xticklabels(tick_labels, fontsize=7.2)
+            if col == 0:
+                ax.set_yticks(ticks)
+                ax.set_yticklabels(tick_labels, fontsize=7.2)
+                ax.set_ylabel(
+                    dataset,
+                    fontsize=11.2,
+                    weight="semibold",
+                    labelpad=9,
+                )
+            else:
+                ax.set_yticks([])
+            ax.tick_params(axis="both", which="major", length=2.0, width=0.75, pad=1.5)
+
+            if row == 0:
+                ax.set_title(method, fontsize=12.0, weight="semibold", pad=7)
+            ax.text(
+                0.025,
+                0.975,
+                panel_letters[panel_idx],
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9.5,
+                weight="bold",
+                color="#111111",
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.80, pad=1.4),
+                zorder=5,
+            )
+            panel_idx += 1
+
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.8)
+                spine.set_color("#333333")
+
+    legend_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.018),
+        ncol=4,
+        frameon=False,
+        fontsize=10.0,
+        handlelength=1.6,
+        handletextpad=0.5,
+        columnspacing=1.25,
+    )
+    fig.subplots_adjust(left=0.105, right=0.985, top=0.945, bottom=0.105, wspace=0.10, hspace=0.18)
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+
+    feature_index = pd.concat(feature_index_tables, ignore_index=True)
+    result = Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        feature_index=feature_index,
+    )
+    empty_group_summary = pd.DataFrame(columns=[
+        "cluster_id",
+        "method",
+        "n_features",
+        "n_features_matching_method",
+        "prominent_features",
+        "feature_indices",
+        "center_x",
+        "center_y",
+    ])
+    result.preserve_group_summary = empty_group_summary.copy()
+    result.lost_group_summary = empty_group_summary.copy()
+    result.synthetic_only_group_summary = empty_group_summary.copy()
+    result.neighborhood_summary = result.preserve_group_summary
+    return result
+
+
 
 def _fit_profile_tsne(partial_corr, seed=123, perplexity=None):
     """Embed features from their Graphical Lasso partial-correlation profiles."""

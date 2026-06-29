@@ -1,8 +1,10 @@
-"""Figure 1 metric strip for one selected dataset."""
+"""Figure 1 metric strip plots."""
 
 import ast
 import contextlib
 import io
+
+from matplotlib.lines import Line2D
 
 from src.revision.common import *
 from src.revision.stats import ks_by_feature, mean_kld_by_feature
@@ -21,6 +23,16 @@ METHOD_TICK_LABELS = {
     "Column-wise": "Column-\nwise",
     "GMM": "GMM",
     "CVAE": "CVAE",
+}
+DATASET_TICK_LABELS = {
+    "HIV": "HIV",
+    "Breast Cancer": "Cancer",
+    "Diabetes": "Diabetes",
+}
+FIGURE1_DATASET_OUTLINE_COLORS = {
+    "HIV": DATASET_COLORS["HIV"],
+    "Breast Cancer": DATASET_COLORS["Breast Cancer"],
+    "Diabetes": DATASET_COLORS["Diabetes"],
 }
 
 
@@ -61,18 +73,21 @@ def _feature_ks_values(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     return out
 
 
-def _draw_distribution_at(ax, pos, vals, method):
+def _draw_distribution_at(ax, pos, vals, method, edge_color=None, face_color=None, alpha=0.92, width=None):
     vals = np.asarray(vals, dtype=float)
     vals = vals[np.isfinite(vals)]
     if len(vals) == 0:
         return
+    edge_color = edge_color or METHOD_COLORS[method]
+    face_color = face_color or METHOD_PASTELS[method]
+    width = width or GENERATOR_VIOLIN_WIDTH
 
     if len(vals) < 2 or np.isclose(np.nanmin(vals), np.nanmax(vals)):
         ax.scatter(
             pos,
             float(np.nanmean(vals)),
             s=38,
-            color=METHOD_COLORS[method],
+            color=edge_color,
             edgecolor="white",
             linewidth=0.8,
             zorder=4,
@@ -82,23 +97,23 @@ def _draw_distribution_at(ax, pos, vals, method):
     violin = ax.violinplot(
         [vals],
         positions=[pos],
-        widths=GENERATOR_VIOLIN_WIDTH,
+        widths=width,
         showmeans=False,
         showmedians=False,
         showextrema=False,
     )
     body = violin["bodies"][0]
-    body.set_facecolor(METHOD_PASTELS[method])
-    body.set_edgecolor(METHOD_COLORS[method])
-    body.set_alpha(0.92)
+    body.set_facecolor(face_color)
+    body.set_edgecolor(edge_color)
+    body.set_alpha(alpha)
     body.set_linewidth(1.25)
     body.set_zorder(2)
 
     q1, med, q3 = np.percentile(vals, [25, 50, 75])
     mean = np.mean(vals)
-    ax.vlines(pos, q1, q3, color=METHOD_COLORS[method], linewidth=2.1, alpha=0.90, zorder=3)
-    ax.scatter(pos, med, s=28, color="white", edgecolor=METHOD_COLORS[method], linewidth=1.2, zorder=4)
-    ax.scatter(pos, mean, s=20, color=METHOD_COLORS[method], edgecolor="white", linewidth=0.6, zorder=5)
+    ax.vlines(pos, q1, q3, color=edge_color, linewidth=2.1, alpha=0.90, zorder=3)
+    ax.scatter(pos, med, s=28, color="white", edgecolor=edge_color, linewidth=1.2, zorder=4)
+    ax.scatter(pos, mean, s=20, color=edge_color, edgecolor="white", linewidth=0.6, zorder=5)
 
 
 def _set_kld_limits(ax, kld_values):
@@ -184,6 +199,128 @@ def plot_figure1_proportion_strip(metric_table, dataset, seed=SEED, cvae_epochs=
     return fig
 
 
+def plot_figure1_proportion_strip_all_datasets(
+    metric_table,
+    dataset_order=DATASET_ORDER,
+):
+    """Plot discriminator AUC distributions with method fills and dataset outlines."""
+    fig, ax = plt.subplots(1, 1, figsize=(5.9, 3.75), constrained_layout=False)
+    method_positions = np.arange(len(METHOD_ORDER), dtype=float)
+    dataset_offsets = np.linspace(-0.09, 0.09, len(dataset_order))
+
+    for dataset_offset, dataset in zip(dataset_offsets, dataset_order):
+        sub = _dataset_metric_table(metric_table, dataset)
+        auc_values = [_coerce_values(v) for v in sub["rf_auc_values"]]
+        for method_pos, method, vals in zip(method_positions, METHOD_ORDER, auc_values):
+            _draw_distribution_at(
+                ax,
+                method_pos + dataset_offset,
+                vals,
+                method,
+                edge_color=FIGURE1_DATASET_OUTLINE_COLORS[dataset],
+                face_color=METHOD_PASTELS[method],
+                alpha=0.58,
+                width=0.25,
+            )
+
+    ax.set_xlim(method_positions[0] - 0.55, method_positions[-1] + 0.55)
+    ax.set_ylim(-0.02, 1.03)
+    ax.set_xticks(method_positions)
+    ax.set_xticklabels([METHOD_TICK_LABELS[method] for method in METHOD_ORDER], fontsize=7.2, linespacing=0.9)
+    _draw_metric_label(ax, float(np.mean(method_positions)), "AUC")
+    ax.set_ylabel("Score", labelpad=6)
+
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            color=FIGURE1_DATASET_OUTLINE_COLORS[dataset],
+            lw=2.0,
+            label=DATASET_TICK_LABELS.get(dataset, dataset),
+        )
+        for dataset in dataset_order
+    ]
+    fig.legend(
+        handles=handles,
+        loc="center left",
+        bbox_to_anchor=(0.835, 0.55),
+        frameon=False,
+        fontsize=8.0,
+        handlelength=1.8,
+    )
+
+    clean_axis(ax, grid_axis="y")
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.2)
+    ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
+    ax.tick_params(axis="x", length=0, pad=4)
+
+    fig.subplots_adjust(left=0.13, right=0.82, top=0.9, bottom=0.33)
+    return fig
+
+
+def plot_figure1_proportion_strip_connected_datasets(
+    metric_table,
+    dataset_order=DATASET_ORDER,
+):
+    """Plot discriminator AUC distributions as connected per-dataset panels."""
+    fig, axes = plt.subplots(
+        1,
+        len(dataset_order),
+        figsize=(4.8 * len(dataset_order), 3.75),
+        sharey=True,
+        constrained_layout=False,
+        gridspec_kw={"wspace": 0.0},
+    )
+    axes = np.atleast_1d(axes)
+    center = 0
+
+    for dataset_i, (ax, dataset) in enumerate(zip(axes, dataset_order)):
+        sub = _dataset_metric_table(metric_table, dataset)
+        auc_values = [_coerce_values(v) for v in sub["rf_auc_values"]]
+        positions = []
+        labels = []
+        for offset, method, vals in zip(GENERATOR_OFFSETS, METHOD_ORDER, auc_values):
+            pos = center + offset
+            positions.append(pos)
+            labels.append(METHOD_TICK_LABELS[method])
+            _draw_distribution_at(ax, pos, vals, method)
+
+        ax.set_xlim(center - METRIC_SPACING / 2, center + METRIC_SPACING / 2)
+        ax.set_ylim(-0.02, 1.03)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, fontsize=7.2, linespacing=0.9)
+        ax.text(
+            0.5,
+            0.08,
+            DATASET_TICK_LABELS.get(dataset, dataset),
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=11.5,
+            weight="semibold",
+            color=DATASET_COLORS[dataset],
+        )
+
+        clean_axis(ax, grid_axis="y")
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.2)
+        if dataset_i > 0:
+            ax.spines["left"].set_visible(False)
+            ax.tick_params(axis="y", left=False, labelleft=False)
+        if dataset_i < len(dataset_order) - 1:
+            ax.spines["right"].set_visible(False)
+        ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
+        ax.tick_params(axis="x", length=0, pad=4)
+
+    axes[0].set_ylabel("Score", labelpad=6)
+    fig.text(0.5, 0.075, "AUC", ha="center", va="center", fontsize=10.5, weight="semibold")
+    fig.subplots_adjust(left=0.06, right=0.985, top=0.9, bottom=0.33)
+    return fig
+
+
 def plot_figure1_marginal_metrics(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     """Plot feature-wise KLD and KS distributions for one selected dataset."""
     kld_values = _feature_kld_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
@@ -242,6 +379,67 @@ def plot_figure1_marginal_metrics(dataset, seed=SEED, cvae_epochs=CVAE_EPOCHS):
         ax.tick_params(axis="x", length=0, pad=4)
 
     fig.subplots_adjust(left=0.12, right=0.97, top=0.9, bottom=0.33)
+    return fig
+
+
+def plot_figure1_marginal_metrics_all_datasets(
+    dataset_order=DATASET_ORDER,
+    seed=SEED,
+    cvae_epochs=CVAE_EPOCHS,
+):
+    """Plot feature-wise KLD and KS distributions with method fills and dataset outlines."""
+    method_positions = np.arange(len(METHOD_ORDER), dtype=float)
+    dataset_offsets = np.linspace(-0.09, 0.09, len(dataset_order))
+    kld_by_dataset = {
+        dataset: _feature_kld_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
+        for dataset in dataset_order
+    }
+    ks_by_dataset = {
+        dataset: _feature_ks_values(dataset, seed=seed, cvae_epochs=cvae_epochs)
+        for dataset in dataset_order
+    }
+
+    fig, (kld_ax, ks_ax) = plt.subplots(
+        1,
+        2,
+        figsize=(8.6, 3.75),
+        constrained_layout=False,
+        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.24},
+    )
+
+    for ax, values_by_dataset in ((kld_ax, kld_by_dataset), (ks_ax, ks_by_dataset)):
+        for dataset_offset, dataset in zip(dataset_offsets, dataset_order):
+            values = values_by_dataset[dataset]
+            for method_pos, method, vals in zip(method_positions, METHOD_ORDER, values):
+                _draw_distribution_at(
+                    ax,
+                    method_pos + dataset_offset,
+                    vals,
+                    method,
+                    edge_color=FIGURE1_DATASET_OUTLINE_COLORS[dataset],
+                    face_color=METHOD_PASTELS[method],
+                    alpha=0.58,
+                    width=0.25,
+                )
+
+        ax.set_xlim(method_positions[0] - 0.55, method_positions[-1] + 0.55)
+        ax.set_xticks(method_positions)
+        ax.set_xticklabels([METHOD_TICK_LABELS[method] for method in METHOD_ORDER], fontsize=7.2, linespacing=0.9)
+        clean_axis(ax, grid_axis="y")
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.2)
+        ax.tick_params(axis="y", labelsize=8.8, width=1.2, length=4)
+        ax.tick_params(axis="x", length=0, pad=4)
+
+    _set_kld_limits(kld_ax, [vals for values in kld_by_dataset.values() for vals in values])
+    _set_positive_metric_limits(ks_ax, [vals for values in ks_by_dataset.values() for vals in values], upper_bound=1.0)
+    _draw_metric_label(kld_ax, float(np.mean(method_positions)), KLD_METRIC_NAME)
+    _draw_metric_label(ks_ax, float(np.mean(method_positions)), KS_METRIC_NAME)
+    kld_ax.set_ylabel("KLD", labelpad=4)
+    ks_ax.set_ylabel("KS statistic", labelpad=4)
+
+    fig.subplots_adjust(left=0.10, right=0.97, top=0.9, bottom=0.33)
     return fig
 
 

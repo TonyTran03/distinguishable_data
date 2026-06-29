@@ -220,6 +220,7 @@ def _draw_rf_importance_tsne_panel(
     method,
     top_features=5,
     max_edges_per_feature=4,
+    annotate_feature_names=True,
 ):
     importance = np.asarray(importance, dtype=float)
     max_importance = float(np.max(importance)) if np.max(importance) > 0 else 1.0
@@ -291,16 +292,17 @@ def _draw_rf_importance_tsne_panel(
             color="#111111",
             zorder=5,
         )
-        ax.annotate(
-            _short_label(feature_names[feature], 16),
-            xy=(coords[feature, 0], coords[feature, 1]),
-            xytext=(5, 5),
-            textcoords="offset points",
-            fontsize=6.8,
-            color=METHOD_COLORS[method],
-            weight="bold",
-            zorder=6,
-        )
+        if annotate_feature_names:
+            ax.annotate(
+                _short_label(feature_names[feature], 16),
+                xy=(coords[feature, 0], coords[feature, 1]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=6.8,
+                color=METHOD_COLORS[method],
+                weight="bold",
+                zorder=6,
+            )
 
     ax.set_xticks([])
     ax.set_yticks([])
@@ -414,6 +416,176 @@ def plot_rf_importance_tsne_edge_overlay(
             weight="semibold",
             fontsize=11.2,
         )
+    return fig, pd.DataFrame(rows)
+
+
+def plot_rf_importance_tsne_edge_overlay_all_datasets(
+    datasets,
+    dataset_order=None,
+    method_order=None,
+    seed=SEED,
+    cvae_epochs=CVAE_EPOCHS,
+    top_features=5,
+    max_edges_per_feature=4,
+    edge_threshold=1e-7,
+    save_path=None,
+):
+    """Show RF-important feature edge overlays for all datasets and methods."""
+    dataset_order = list(dataset_order or DATASET_ORDER)
+    requested_methods = list(
+        method_order or ["Bootstrap", "Column-wise", "CVAE", "GMM"]
+    )
+    comparison_methods = [method for method in requested_methods if method in METHOD_ORDER]
+    if not comparison_methods:
+        raise ValueError("No requested methods are present in METHOD_ORDER.")
+
+    n_rows = len(dataset_order)
+    n_cols = len(comparison_methods)
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(3.25 * n_cols + 1.15, 3.15 * n_rows + 1.15),
+        squeeze=False,
+        constrained_layout=False,
+    )
+    fig.patch.set_facecolor("white")
+    rows = []
+    panel_letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    panel_idx = 0
+
+    for row, dataset in enumerate(dataset_order):
+        data = datasets[dataset]
+        X_real = np.asarray(data["X"], dtype=np.float32)
+        feature_names = list(
+            data.get("feature_names", [f"feature_{i + 1}" for i in range(X_real.shape[1])])
+        )
+        alpha = FIGURE4_ALPHAS[dataset]
+        theta_real = fit_glasso_precision(X_real, alpha)
+        real_partial = precision_to_partial_corr(theta_real)
+        real_edges = get_edge_set(real_partial, edge_threshold)
+        coords, _, _ = _fit_profile_tsne(real_partial, seed=seed)
+
+        for col, method in enumerate(comparison_methods):
+            ax = axes[row, col]
+            X_syn, _ = sample_synthetic(
+                dataset,
+                data,
+                method,
+                seed=seed,
+                cvae_epochs=cvae_epochs,
+            )
+            X_syn = np.asarray(X_syn, dtype=np.float32)
+            importance, ranks, ranking = discriminator_feature_importance(
+                X_real,
+                X_syn,
+                seed=seed,
+            )
+            theta_syn = fit_glasso_precision(X_syn, alpha)
+            synthetic_partial = precision_to_partial_corr(theta_syn)
+            synthetic_edges = get_edge_set(synthetic_partial, edge_threshold)
+            _draw_rf_importance_tsne_panel(
+                ax,
+                coords,
+                real_partial,
+                real_edges,
+                synthetic_partial,
+                synthetic_edges,
+                feature_names,
+                importance,
+                method,
+                top_features=top_features,
+                max_edges_per_feature=max_edges_per_feature,
+                annotate_feature_names=False,
+            )
+
+            if row == 0:
+                ax.set_title(
+                    method,
+                    color=METHOD_COLORS[method],
+                    fontsize=12.0,
+                    weight="semibold",
+                    pad=7,
+                )
+            if col == 0:
+                ax.set_ylabel(
+                    dataset,
+                    fontsize=11.2,
+                    weight="semibold",
+                    labelpad=9,
+                )
+            ax.text(
+                0.025,
+                0.975,
+                panel_letters[panel_idx],
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9.5,
+                weight="bold",
+                color="#111111",
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.80, pad=1.4),
+                zorder=8,
+            )
+            panel_idx += 1
+
+            for rank_position, feature in enumerate(ranking[: int(top_features)], start=1):
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "method": method,
+                        "rf_rank": rank_position,
+                        "feature_index": int(feature),
+                        "feature_name": feature_names[int(feature)],
+                        "rf_importance": float(importance[int(feature)]),
+                        "real_degree": int(sum(int(feature) in edge for edge in real_edges)),
+                        "preserved_incident_edges": int(
+                            sum(int(feature) in edge for edge in (real_edges & synthetic_edges))
+                        ),
+                        "lost_incident_edges": int(
+                            sum(int(feature) in edge for edge in (real_edges - synthetic_edges))
+                        ),
+                        "synthetic_only_incident_edges": int(
+                            sum(int(feature) in edge for edge in (synthetic_edges - real_edges))
+                        ),
+                    }
+                )
+
+    handles = [
+        Line2D([0], [0], color=EDGE_COLORS["preserved"], linewidth=4.0, label="Preserved edge"),
+        Line2D([0], [0], color=EDGE_COLORS["real_only"], linewidth=4.0, label="Real-only / lost"),
+        Line2D([0], [0], color=EDGE_COLORS["synthetic_only"], linewidth=4.0, label="Synthetic-only"),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="#6A6A6A",
+            markerfacecolor="#F8F8F8",
+            linewidth=0,
+            markersize=9,
+            label="Feature",
+        ),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.012),
+        ncol=4,
+        frameon=False,
+        fontsize=10.0,
+        handlelength=2.0,
+        handletextpad=0.55,
+        columnspacing=1.3,
+    )
+    fig.subplots_adjust(
+        left=0.085,
+        right=0.985,
+        top=0.945,
+        bottom=0.085,
+        wspace=0.08,
+        hspace=0.12,
+    )
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
     return fig, pd.DataFrame(rows)
 
 
@@ -1252,6 +1424,232 @@ def plot_figure6_ablation_dataset(ablation_df, dataset):
 
     fig.subplots_adjust(left=0.16, right=0.96, top=0.88, bottom=0.16)
     return fig
+
+
+def plot_figure6_ablation_endpoint_dumbbells(
+    ablation_df,
+    dataset_order=None,
+    method_order=None,
+    save_path=None,
+):
+    """Compare baseline and maximum-ablation AUC in separate dataset panels."""
+    dataset_order = list(dataset_order or DATASET_ORDER)
+    requested_methods = list(
+        method_order or ["Bootstrap", "Column-wise", "CVAE", "GMM"]
+    )
+    method_order = [method for method in requested_methods if method in METHOD_ORDER]
+    if not method_order:
+        raise ValueError("No requested methods are present in METHOD_ORDER.")
+
+    fig, axes = plt.subplots(
+        1,
+        len(dataset_order),
+        figsize=(13.4, 4.45),
+        sharex=True,
+        sharey=True,
+        constrained_layout=False,
+    )
+    axes = list(np.atleast_1d(axes).ravel())
+    fig.patch.set_facecolor("white")
+    y_positions = np.arange(len(method_order))[::-1]
+    summary_rows = []
+
+    for panel_idx, (ax, dataset) in enumerate(zip(axes, dataset_order)):
+        sub = ablation_df[ablation_df["dataset"] == dataset]
+        if sub.empty:
+            ax.set_visible(False)
+            continue
+
+        max_removed = int(sub["n_features_removed"].max())
+        final_rows = sub[sub["n_features_removed"] == max_removed]
+        if "n_features_retained" in final_rows.columns and not final_rows.empty:
+            total_features = int(
+                max_removed + final_rows["n_features_retained"].iloc[0]
+            )
+            removal_text = (
+                f"Maximum ablation: {max_removed} of {total_features} features "
+                f"({100 * max_removed / total_features:.0f}%)"
+            )
+        else:
+            removal_text = f"Maximum ablation: {max_removed} features"
+
+        for y, method in zip(y_positions, method_order):
+            method_rows = sub[sub["method"] == method].sort_values("n_features_removed")
+            if method_rows.empty:
+                continue
+            initial = method_rows.iloc[0]
+            final = method_rows.iloc[-1]
+            auc_initial = float(initial["auc_mean"])
+            auc_final = float(final["auc_mean"])
+            sd_initial = float(initial.get("auc_sd", 0.0))
+            sd_final = float(final.get("auc_sd", 0.0))
+            delta_auc = auc_final - auc_initial
+            color = METHOD_COLORS[method]
+
+            ax.annotate(
+                "",
+                xy=(auc_final, y),
+                xytext=(auc_initial, y),
+                arrowprops=dict(
+                    arrowstyle="-|>",
+                    color=color,
+                    linewidth=2.4,
+                    mutation_scale=12,
+                    shrinkA=5,
+                    shrinkB=6,
+                    alpha=0.78,
+                ),
+                zorder=2,
+            )
+            ax.errorbar(
+                auc_initial,
+                y,
+                xerr=sd_initial,
+                fmt="none",
+                ecolor=color,
+                elinewidth=1.0,
+                capsize=2.5,
+                alpha=0.45,
+                zorder=1,
+            )
+            ax.errorbar(
+                auc_final,
+                y,
+                xerr=sd_final,
+                fmt="none",
+                ecolor=color,
+                elinewidth=1.0,
+                capsize=2.5,
+                alpha=0.45,
+                zorder=1,
+            )
+            ax.scatter(
+                auc_initial,
+                y,
+                s=62,
+                facecolor="white",
+                edgecolor=color,
+                linewidth=2.0,
+                zorder=4,
+            )
+            ax.scatter(
+                auc_final,
+                y,
+                s=70,
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.9,
+                zorder=5,
+            )
+            midpoint = (auc_initial + auc_final) / 2
+            ax.text(
+                midpoint,
+                y + 0.19,
+                rf"$\Delta$ {delta_auc:+.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=8.2,
+                weight="semibold",
+                color="#333333",
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.82, pad=0.7),
+                zorder=6,
+            )
+            summary_rows.append(
+                {
+                    "dataset": dataset,
+                    "method": method,
+                    "initial_auc": auc_initial,
+                    "maximum_ablation_auc": auc_final,
+                    "delta_auc": delta_auc,
+                    "n_features_removed": int(final["n_features_removed"]),
+                    "n_features_retained": int(final.get("n_features_retained", 0)),
+                }
+            )
+
+        ax.axvline(0.5, color="#777777", linestyle="--", linewidth=1.15, zorder=0)
+        ax.set_title(
+            dataset,
+            color=DATASET_COLORS[dataset],
+            fontsize=13.5,
+            weight="bold",
+            pad=25,
+        )
+        ax.text(
+            0.5,
+            1.015,
+            removal_text,
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color="#4A4A4A",
+        )
+        ax.text(
+            0.018,
+            0.97,
+            chr(ord("A") + panel_idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=12.0,
+            weight="bold",
+            color="#111111",
+        )
+        ax.set_xlim(0.48, 1.025)
+        ax.set_xticks(np.arange(0.5, 1.01, 0.1))
+        ax.set_ylim(-0.55, len(method_order) - 0.35)
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(method_order, fontsize=9.5, weight="semibold")
+        for tick, method in zip(ax.get_yticklabels(), method_order):
+            tick.set_color(METHOD_COLORS[method])
+        ax.set_xlabel("Origin-classification AUC", labelpad=7)
+        ax.grid(axis="x", color="#D9D9D9", linewidth=0.8, alpha=0.75)
+        ax.grid(axis="y", visible=False)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.0)
+            spine.set_color("#555555")
+        ax.tick_params(axis="x", labelsize=8.8, width=1.0, length=4)
+        ax.tick_params(axis="y", length=0, pad=7)
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="#555555",
+            markerfacecolor="white",
+            markeredgewidth=1.8,
+            linewidth=0,
+            markersize=7,
+            label="Before removal",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="#555555",
+            markerfacecolor="#555555",
+            linewidth=0,
+            markersize=7,
+            label="After maximum removal",
+        ),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.01),
+        ncol=2,
+        frameon=False,
+        fontsize=9.5,
+        handletextpad=0.5,
+        columnspacing=1.8,
+    )
+    fig.subplots_adjust(left=0.095, right=0.992, top=0.82, bottom=0.19, wspace=0.20)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+    return fig, pd.DataFrame(summary_rows)
+
 
 def plot_figure6_ablation_all_datasets(ablation_df):
     fig, curve_axes = plt.subplots(

@@ -9,6 +9,7 @@ from src.revision.stats import (
 from src.revision.figure4_graphical_lasso_plots import (
     plot_figure4_metric_summary,
     plot_figure4_edge_status_matrices,
+    plot_figure4_edge_status_all_datasets,
     plot_figure4_cluster_summary_grid,
     plot_figure4_tsne_edge_supplement,
     plot_edge_status_examples,
@@ -221,6 +222,24 @@ def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None)
     )
     return result
 
+
+def plot_figure4_edge_status_all(threshold=1e-7, save_path=None):
+    """Return the main-text 3 x 4 edge-status matrix across all datasets."""
+    real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
+        seed=SEED, cvae_epochs=CVAE_EPOCHS
+    )
+    return plot_figure4_edge_status_all_datasets(
+        real_data=real_data,
+        synthetic_data=synthetic_data,
+        feature_names=feature_name_map,
+        alphas=FIGURE4_ALPHAS,
+        dataset_order=DATASET_ORDER,
+        method_order=METHOD_ORDER,
+        comparison_methods=["Bootstrap", "Column-wise", "CVAE", "GMM"],
+        threshold=threshold,
+        save_path=save_path,
+    )
+
 def plot_figure4_tsne_analysis_supplement(
     dataset_name="HIV",
     threshold=1e-7,
@@ -416,25 +435,25 @@ def export_figure4_supplemental_figures(
         plt.close(examples_result.fig)
 
     if include_main_matrices:
-        matrices_path = output_dir / f"figure4_{_dataset_slug(exemplar_ds)}_edge_status_matrices.png"
-        matrices_result = plot_figure4_edge_status_matrices(
+        matrices_path = output_dir / "figure4_all_datasets_edge_status_matrices.png"
+        matrices_result = plot_figure4_edge_status_all_datasets(
             real_data=real_data,
             synthetic_data=synthetic_data,
             feature_names=feature_names,
             alphas=alphas,
             dataset_order=dataset_order,
             method_order=method_order,
-            exemplar_ds=exemplar_ds,
+            comparison_methods=["Bootstrap", "Column-wise", "CVAE", "GMM"],
             save_path=matrices_path,
         )
         exported_figures.append({
             "section": "Main text",
-            "dataset": exemplar_ds,
+            "dataset": "All datasets",
             "figure": "Graphical Lasso edge-status matrices",
             "path": str(matrices_path),
         })
-        all_metrics.append(matrices_result.metrics.assign(figure_dataset=f"{exemplar_ds} matrices"))
-        results[f"{exemplar_ds} matrices"] = matrices_result
+        all_metrics.append(matrices_result.metrics.assign(figure_dataset="all dataset matrices"))
+        results["all dataset matrices"] = matrices_result
         plt.close(matrices_result.fig)
 
     if include_cluster_summary:
