@@ -1426,6 +1426,144 @@ def plot_figure6_ablation_dataset(ablation_df, dataset):
     return fig
 
 
+def plot_figure6_ablation_percent_curves(
+    ablation_df,
+    dataset_order=None,
+    method_order=None,
+    save_path=None,
+):
+    """Plot reverse-ablation trajectories on a comparable percent-removed axis."""
+    dataset_order = list(dataset_order or DATASET_ORDER)
+    requested_methods = list(
+        method_order or ["Bootstrap", "Column-wise", "CVAE", "GMM"]
+    )
+    method_order = [method for method in requested_methods if method in METHOD_ORDER]
+    if not method_order:
+        raise ValueError("No requested methods are present in METHOD_ORDER.")
+
+    fig, axes = plt.subplots(
+        1,
+        len(dataset_order),
+        figsize=(13.4, 4.15),
+        sharex=True,
+        sharey=True,
+        constrained_layout=False,
+    )
+    axes = list(np.atleast_1d(axes).ravel())
+    fig.patch.set_facecolor("white")
+
+    for panel_idx, (ax, dataset) in enumerate(zip(axes, dataset_order)):
+        sub = ablation_df[ablation_df["dataset"] == dataset]
+        if sub.empty:
+            ax.set_visible(False)
+            continue
+
+        ax.axvspan(75, 100, color="#EFEFEF", alpha=0.75, linewidth=0, zorder=0)
+        for method in method_order:
+            method_rows = sub[sub["method"] == method].sort_values("n_features_removed")
+            if method_rows.empty:
+                continue
+            if "n_features_retained" in method_rows.columns:
+                totals = (
+                    method_rows["n_features_removed"].to_numpy(dtype=float)
+                    + method_rows["n_features_retained"].to_numpy(dtype=float)
+                )
+                percent_removed = np.divide(
+                    100.0 * method_rows["n_features_removed"].to_numpy(dtype=float),
+                    totals,
+                    out=np.zeros(len(method_rows), dtype=float),
+                    where=totals > 0,
+                )
+            else:
+                maximum = max(float(method_rows["n_features_removed"].max()), 1.0)
+                percent_removed = (
+                    100.0 * method_rows["n_features_removed"].to_numpy(dtype=float) / maximum
+                )
+            auc_mean = method_rows["auc_mean"].to_numpy(dtype=float)
+            auc_sd = method_rows["auc_sd"].to_numpy(dtype=float)
+            ax.plot(
+                percent_removed,
+                auc_mean,
+                color=METHOD_COLORS[method],
+                marker="o",
+                linewidth=2.3,
+                markersize=4.8,
+                label=method,
+                zorder=3,
+            )
+            ax.fill_between(
+                percent_removed,
+                auc_mean - auc_sd,
+                auc_mean + auc_sd,
+                color=METHOD_COLORS[method],
+                alpha=0.12,
+                linewidth=0,
+                zorder=2,
+            )
+
+        ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.15, zorder=1)
+        ax.set_title(
+            dataset,
+            color=DATASET_COLORS[dataset],
+            fontsize=13.5,
+            weight="bold",
+            pad=10,
+        )
+        ax.text(
+            0.018,
+            0.97,
+            chr(ord("A") + panel_idx),
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=12.0,
+            weight="bold",
+            color="#111111",
+        )
+        ax.set_xlim(-2, 102)
+        ax.set_xticks([0, 25, 50, 75, 100])
+        ax.set_ylim(0.48, 1.02)
+        ax.set_xlabel("Top-ranked features removed (%)", labelpad=7)
+        ax.grid(axis="y", color="#D9D9D9", linewidth=0.8, alpha=0.75)
+        ax.grid(axis="x", visible=False)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.0)
+            spine.set_color("#555555")
+        ax.tick_params(labelsize=8.8, width=1.0, length=4)
+
+    axes[0].set_ylabel("Origin-classification AUC")
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=METHOD_COLORS[method],
+            marker="o",
+            linewidth=2.2,
+            markersize=5.0,
+            label=method,
+        )
+        for method in method_order
+    ]
+    legend_handles.append(
+        Patch(facecolor="#EFEFEF", edgecolor="none", label="Extensive removal (75–100%)")
+    )
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.012),
+        ncol=len(legend_handles),
+        frameon=False,
+        fontsize=9.2,
+        handletextpad=0.5,
+        columnspacing=1.35,
+    )
+    fig.subplots_adjust(left=0.065, right=0.992, top=0.89, bottom=0.20, wspace=0.16)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+    return fig
+
+
 def plot_figure6_ablation_endpoint_dumbbells(
     ablation_df,
     dataset_order=None,
