@@ -15,24 +15,27 @@ from src.revision.common import *
 
 DEFAULT_COMPARISON_METHODS = ["Bootstrap", "Column-wise", "CVAE", "GMM"]
 
-def _dataset_ks_cmap(dataset, color):
-    """Build a light-to-saturated sequential map from a dataset's house colour."""
+def _dataset_significance_cmap(dataset, color):
+    """Build discrete significance colours from a dataset's house colour."""
     rgb = np.asarray(mpl.colors.to_rgb(color), dtype=float)
     white = np.asarray(mpl.colors.to_rgb("#FAFAF7"), dtype=float)
-    pale = 0.82 * white + 0.18 * rgb
-    medium = 0.48 * white + 0.52 * rgb
-    dark = 0.78 * rgb
-    return mpl.colors.LinearSegmentedColormap.from_list(
-        f"marginal_ks_{str(dataset).lower().replace(' ', '_')}",
-        [white, pale, medium, rgb, dark],
-        N=256,
+    pale = 0.76 * white + 0.24 * rgb
+    medium = 0.38 * white + 0.62 * rgb
+    dark = 0.62 * rgb
+    return mpl.colors.ListedColormap(
+        [dark, rgb, medium, white],
+        name=f"marginal_pvalue_{str(dataset).lower().replace(' ', '_')}",
     )
 
 
-DATASET_KS_CMAPS = {
-    dataset: _dataset_ks_cmap(dataset, color)
+DATASET_SIGNIFICANCE_CMAPS = {
+    dataset: _dataset_significance_cmap(dataset, color)
     for dataset, color in DATASET_COLORS.items()
 }
+
+PVALUE_BOUNDARIES = [0.0, 0.001, 0.01, 0.05, 1.0000001]
+PVALUE_TICKS = [0.0005, 0.0055, 0.03, 0.525]
+PVALUE_TICK_LABELS = ["<0.001", "0.001–0.01", "0.01–0.05", "≥0.05"]
 
 
 @dataclass
@@ -150,22 +153,18 @@ def _short_feature_name(name, max_len=28):
     return name[: max_len - 1] + "…"
 
 
-def plot_ks_heatmaps(
+def plot_pvalue_heatmaps(
     marginal_table,
     dataset_order=None,
     method_order=None,
     save_path=None,
 ):
-    """Plot all per-feature KS statistics in one panel per dataset."""
+    """Plot raw Welch t-test p-values as discrete significance categories."""
     dataset_order = list(dataset_order or marginal_table["dataset"].unique())
     method_order = list(method_order or DEFAULT_COMPARISON_METHODS)
     method_order = [m for m in method_order if m in set(marginal_table["method"])]
     if not method_order:
         raise ValueError("No requested methods are present in marginal_table.")
-
-    finite_ks = marginal_table["ks_statistic"].to_numpy(dtype=float)
-    finite_ks = finite_ks[np.isfinite(finite_ks)]
-    vmax = max(0.10, float(np.max(finite_ks))) if len(finite_ks) else 1.0
 
     fig, axes = plt.subplots(
         1,
@@ -180,21 +179,23 @@ def plot_ks_heatmaps(
 
     for panel_index, (ax, dataset) in enumerate(zip(axes, dataset_order)):
         sub = marginal_table[marginal_table["dataset"] == dataset]
-        matrix = sub.pivot(index="feature", columns="method", values="ks_statistic")
+        matrix = sub.pivot(index="feature", columns="method", values="p_value")
         matrix = matrix.reindex(columns=method_order)
-        order = matrix.max(axis=1).sort_values(ascending=False).index
+        order = matrix.min(axis=1).sort_values(ascending=True).index
         matrix = matrix.reindex(order)
+
+        cmap = DATASET_SIGNIFICANCE_CMAPS.get(
+            dataset,
+            _dataset_significance_cmap(dataset, "#666666"),
+        )
+        norm = mpl.colors.BoundaryNorm(PVALUE_BOUNDARIES, cmap.N)
 
         image = ax.imshow(
             matrix.to_numpy(dtype=float),
             aspect="auto",
             interpolation="nearest",
-            cmap=DATASET_KS_CMAPS.get(
-                dataset,
-                _dataset_ks_cmap(dataset, "#666666"),
-            ),
-            vmin=0,
-            vmax=vmax,
+            cmap=cmap,
+            norm=norm,
         )
         ax.set_xticks(np.arange(len(method_order)))
         ax.set_xticklabels(
@@ -237,21 +238,16 @@ def plot_ks_heatmaps(
             fraction=0.025,
             pad=0.035,
             aspect=28,
+            boundaries=PVALUE_BOUNDARIES,
+            ticks=PVALUE_TICKS,
+            spacing="uniform",
         )
         cbar.ax.tick_params(labelsize=7.8, length=2.5)
+        cbar.ax.set_xticklabels(PVALUE_TICK_LABELS)
         cbar.outline.set_linewidth(0.7)
-        cbar.set_label("KS statistic", fontsize=8.3, labelpad=3)
+        cbar.set_label("Welch t-test p-value", fontsize=8.3, labelpad=3)
 
-    fig.text(
-        0.5,
-        0.018,
-        "Two-sample KS statistic: 0 indicates a closer marginal match",
-        ha="center",
-        va="bottom",
-        fontsize=9.2,
-        color="#444444",
-    )
-    fig.subplots_adjust(left=0.13, right=0.985, top=0.93, bottom=0.075)
+    fig.subplots_adjust(left=0.13, right=0.985, top=0.93, bottom=0.065)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
@@ -453,7 +449,7 @@ def build_marginal_diagnostics(
         dataset_order=dataset_order,
         method_order=method_order,
     )
-    heatmap = plot_ks_heatmaps(
+    heatmap = plot_pvalue_heatmaps(
         table,
         dataset_order=dataset_order,
         method_order=method_order,
