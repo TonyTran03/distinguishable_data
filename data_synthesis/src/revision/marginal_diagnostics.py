@@ -8,8 +8,6 @@ are reported as a table and are intentionally not used to select plot features.
 from dataclasses import dataclass
 from collections.abc import Mapping
 
-from matplotlib.lines import Line2D
-
 from src.revision.common import *
 
 
@@ -41,9 +39,14 @@ PVALUE_TICK_LABELS = ["<0.001", "0.001–0.01", "0.01–0.05", "≥0.05"]
 @dataclass
 class MarginalDiagnosticsResult:
     heatmap: object
-    ecdf_figures: dict
+    overlap_figures: dict
     t_test_table: pd.DataFrame
     ks_table: pd.DataFrame
+
+    @property
+    def ecdf_figures(self):
+        """Backward-compatible alias for notebooks created before overlap plots."""
+        return self.overlap_figures
 
 
 def _finite(values):
@@ -254,13 +257,6 @@ def plot_pvalue_heatmaps(
     return fig
 
 
-def _ecdf(values):
-    values = np.sort(_finite(values))
-    if len(values) == 0:
-        return values, values
-    return values, np.arange(1, len(values) + 1, dtype=float) / len(values)
-
-
 def _standardize_from_real(real, synthetic):
     real = _finite(real)
     synthetic = _finite(synthetic)
@@ -273,19 +269,21 @@ def _standardize_from_real(real, synthetic):
     return (real - center) / scale, (synthetic - center) / scale
 
 
-def _ks_gap_coordinates(real, synthetic):
-    real = _finite(real)
-    synthetic = _finite(synthetic)
-    if len(real) == 0 or len(synthetic) == 0:
-        return np.nan, np.nan, np.nan
-    points = np.sort(np.unique(np.concatenate([real, synthetic])))
-    real_cdf = np.searchsorted(np.sort(real), points, side="right") / len(real)
-    syn_cdf = np.searchsorted(np.sort(synthetic), points, side="right") / len(synthetic)
-    idx = int(np.argmax(np.abs(real_cdf - syn_cdf)))
-    return float(points[idx]), float(real_cdf[idx]), float(syn_cdf[idx])
+def _shared_histogram_edges(real, synthetic, min_bins=10, max_bins=26):
+    combined = np.concatenate([_finite(real), _finite(synthetic)])
+    if len(combined) == 0:
+        return np.linspace(-1, 1, min_bins + 1)
+    lo = float(np.min(combined))
+    hi = float(np.max(combined))
+    if np.isclose(lo, hi):
+        pad = max(0.5, abs(lo) * 0.05)
+        return np.linspace(lo - pad, hi + pad, min_bins + 1)
+    edges = np.histogram_bin_edges(combined, bins="fd")
+    n_bins = int(np.clip(len(edges) - 1, min_bins, max_bins))
+    return np.linspace(lo, hi, n_bins + 1)
 
 
-def plot_ecdf_details(
+def plot_distribution_overlaps(
     real_data,
     synthetic_data,
     feature_names,
@@ -295,7 +293,7 @@ def plot_ecdf_details(
     top_n=6,
     save_path=None,
 ):
-    """Plot ECDFs for features ranked by their worst KS statistic across methods."""
+    """Plot overlapping marginal histograms for features with the largest KS gaps."""
     method_order = list(method_order or DEFAULT_COMPARISON_METHODS)
     available_methods = set(synthetic_data[dataset])
     method_order = [method for method in method_order if method in available_methods]
@@ -336,29 +334,30 @@ def plot_ecdf_details(
             real_z, syn_z = _standardize_from_real(
                 X_real[:, feature_index], X_syn[:, feature_index]
             )
-            real_x, real_y = _ecdf(real_z)
-            syn_x, syn_y = _ecdf(syn_z)
-            ax.step(real_x, real_y, where="post", color="#333434", linewidth=1.45, label="Real")
-            ax.step(
-                syn_x,
-                syn_y,
-                where="post",
-                color=METHOD_COLORS.get(method, "#D55E00"),
-                linewidth=1.45,
+            edges = _shared_histogram_edges(real_z, syn_z)
+            syn_color = METHOD_COLORS.get(method, "#D55E00")
+            ax.hist(
+                real_z,
+                bins=edges,
+                density=True,
+                histtype="stepfilled",
+                color="#777777",
+                alpha=0.36,
+                linewidth=0,
+                label="Real",
+            )
+            ax.hist(
+                syn_z,
+                bins=edges,
+                density=True,
+                histtype="stepfilled",
+                color=syn_color,
+                alpha=0.36,
+                linewidth=0,
                 label="Synthetic",
             )
-
-            gap_x, gap_real, gap_syn = _ks_gap_coordinates(real_z, syn_z)
-            if np.isfinite(gap_x):
-                ax.vlines(
-                    gap_x,
-                    min(gap_real, gap_syn),
-                    max(gap_real, gap_syn),
-                    color="#111111",
-                    linewidth=2.3,
-                    alpha=0.72,
-                    zorder=4,
-                )
+            ax.hist(real_z, bins=edges, density=True, histtype="step", color="#333434", linewidth=1.2)
+            ax.hist(syn_z, bins=edges, density=True, histtype="step", color=syn_color, linewidth=1.2)
             ks_value = sub.loc[
                 (sub["method"] == method) & (sub["feature"] == feature),
                 "ks_statistic",
@@ -389,16 +388,14 @@ def plot_ecdf_details(
                 ax.set_title(method, fontsize=10.5, weight="semibold", pad=7)
             if col == 0:
                 ax.set_ylabel(
-                    _short_feature_name(feature, max_len=24) + "\nECDF",
+                    _short_feature_name(feature, max_len=24) + "\nDensity",
                     fontsize=8.1,
                     weight="semibold",
                     labelpad=7,
                 )
             if row == len(ranked_features) - 1:
-                ax.set_xlabel("Value (real-data SD units)", fontsize=8.2)
+                ax.set_xlabel("Standardized value", fontsize=8.2)
 
-            ax.set_ylim(0, 1.02)
-            ax.set_yticks([0, 0.5, 1.0])
             ax.grid(axis="y", color="#D9D9D9", linewidth=0.65, alpha=0.45)
             ax.tick_params(labelsize=7.2, width=0.8, length=3)
             for spine in ax.spines.values():
@@ -406,20 +403,19 @@ def plot_ecdf_details(
                 spine.set_color("#555555")
 
     handles = [
-        Line2D([0], [0], color="#333434", lw=2.0, label="Real"),
-        Line2D([0], [0], color="#777777", lw=2.0, label="Synthetic (column method colour)"),
-        Line2D([0], [0], color="#111111", lw=2.5, label="Maximum CDF gap (KS)"),
+        mpl.patches.Patch(facecolor="#777777", edgecolor="#333434", alpha=0.36, label="Real"),
+        mpl.patches.Patch(facecolor="#777777", edgecolor="#777777", alpha=0.36, label="Synthetic (column method colour)"),
     ]
     fig.legend(
         handles=handles,
         loc="lower center",
         bbox_to_anchor=(0.5, 0.012),
-        ncol=3,
+        ncol=2,
         frameon=False,
         fontsize=8.5,
     )
     fig.suptitle(
-        f"{dataset}: marginal distributions with largest KS discrepancies",
+        f"{dataset}: real–synthetic marginal distribution overlap",
         fontsize=12.5,
         weight="semibold",
         y=0.985,
@@ -454,8 +450,8 @@ def build_marginal_diagnostics(
         dataset_order=dataset_order,
         method_order=method_order,
     )
-    ecdf_figures = {
-        dataset: plot_ecdf_details(
+    overlap_figures = {
+        dataset: plot_distribution_overlaps(
             real_data=real_data,
             synthetic_data=synthetic_data,
             feature_names=feature_names,
@@ -471,7 +467,7 @@ def build_marginal_diagnostics(
     ].sort_values(["dataset", "method", "ks_statistic"], ascending=[True, True, False])
     return MarginalDiagnosticsResult(
         heatmap=heatmap,
-        ecdf_figures=ecdf_figures,
+        overlap_figures=overlap_figures,
         t_test_table=table,
         ks_table=ks_table,
     )
