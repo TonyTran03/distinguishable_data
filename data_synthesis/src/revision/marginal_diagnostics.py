@@ -269,18 +269,31 @@ def _standardize_from_real(real, synthetic):
     return (real - center) / scale, (synthetic - center) / scale
 
 
-def _shared_histogram_edges(real, synthetic, min_bins=10, max_bins=26):
-    combined = np.concatenate([_finite(real), _finite(synthetic)])
+def _pooled_histogram_spec(
+    value_groups,
+    lower_quantile=0.01,
+    upper_quantile=0.99,
+    min_bins=10,
+    max_bins=26,
+    axis_pad_fraction=0.08,
+):
+    """Return robust shared limits and bins for one feature across all methods."""
+    finite_groups = [_finite(values) for values in value_groups]
+    finite_groups = [values for values in finite_groups if len(values)]
+    combined = np.concatenate(finite_groups) if finite_groups else np.array([])
     if len(combined) == 0:
-        return np.linspace(-1, 1, min_bins + 1)
-    lo = float(np.min(combined))
-    hi = float(np.max(combined))
+        return -1.0, 1.0, np.linspace(-1, 1, min_bins + 1)
+    lo, hi = np.quantile(combined, [lower_quantile, upper_quantile])
+    lo, hi = float(lo), float(hi)
     if np.isclose(lo, hi):
         pad = max(0.5, abs(lo) * 0.05)
-        return np.linspace(lo - pad, hi + pad, min_bins + 1)
-    edges = np.histogram_bin_edges(combined, bins="fd")
+        lo, hi = lo - pad, hi + pad
+    visible = combined[(combined >= lo) & (combined <= hi)]
+    edges = np.histogram_bin_edges(visible, bins="fd")
     n_bins = int(np.clip(len(edges) - 1, min_bins, max_bins))
-    return np.linspace(lo, hi, n_bins + 1)
+    histogram_edges = np.linspace(lo, hi, n_bins + 1)
+    axis_pad = axis_pad_fraction * (hi - lo)
+    return lo - axis_pad, hi + axis_pad, histogram_edges
 
 
 def plot_distribution_overlaps(
@@ -304,6 +317,10 @@ def plot_distribution_overlaps(
         else feature_names
     )
     name_to_index = {name: index for index, name in enumerate(names)}
+    synthetic_arrays = {
+        method: np.asarray(synthetic_data[dataset][method], dtype=np.float64)
+        for method in method_order
+    }
 
     sub = marginal_table[marginal_table["dataset"] == dataset]
     ranked_features = (
@@ -328,13 +345,24 @@ def plot_distribution_overlaps(
 
     for row, feature in enumerate(ranked_features):
         feature_index = name_to_index[feature]
+        real_z, _ = _standardize_from_real(
+            X_real[:, feature_index], X_real[:, feature_index]
+        )
+        synthetic_z = {
+            method: _standardize_from_real(
+                X_real[:, feature_index], synthetic_arrays[method][:, feature_index]
+            )[1]
+            for method in method_order
+        }
+        x_min, x_max, edges = _pooled_histogram_spec(
+            [real_z, *synthetic_z.values()],
+            lower_quantile=0.01,
+            upper_quantile=0.99,
+        )
+
         for col, method in enumerate(method_order):
             ax = axes[row, col]
-            X_syn = np.asarray(synthetic_data[dataset][method], dtype=np.float64)
-            real_z, syn_z = _standardize_from_real(
-                X_real[:, feature_index], X_syn[:, feature_index]
-            )
-            edges = _shared_histogram_edges(real_z, syn_z)
+            syn_z = synthetic_z[method]
             syn_color = METHOD_COLORS.get(method, "#D55E00")
             ax.hist(
                 real_z,
@@ -396,6 +424,7 @@ def plot_distribution_overlaps(
             if row == len(ranked_features) - 1:
                 ax.set_xlabel("Standardized value", fontsize=8.2)
 
+            ax.set_xlim(x_min, x_max)
             ax.grid(axis="y", color="#D9D9D9", linewidth=0.65, alpha=0.45)
             ax.tick_params(labelsize=7.2, width=0.8, length=3)
             for spine in ax.spines.values():
@@ -409,7 +438,7 @@ def plot_distribution_overlaps(
     fig.legend(
         handles=handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.012),
+        bbox_to_anchor=(0.5, 0.008),
         ncol=2,
         frameon=False,
         fontsize=8.5,
@@ -420,7 +449,16 @@ def plot_distribution_overlaps(
         weight="semibold",
         y=0.985,
     )
-    fig.subplots_adjust(left=0.16, right=0.985, top=0.925, bottom=0.085, wspace=0.12, hspace=0.18)
+    fig.text(
+        0.5,
+        0.047,
+        "Axes are based on the pooled 1st–99th percentile range with visual padding; KS uses all observations.",
+        ha="center",
+        va="bottom",
+        fontsize=8.3,
+        color="#555555",
+    )
+    fig.subplots_adjust(left=0.16, right=0.985, top=0.925, bottom=0.12, wspace=0.12, hspace=0.18)
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
