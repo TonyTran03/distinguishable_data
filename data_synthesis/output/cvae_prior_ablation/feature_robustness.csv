@@ -1,0 +1,304 @@
+dataset,prior,feature,significant_repeat_fraction
+HIV,Normal,spikeProduction_D1D2,0.0
+HIV,Normal,spikeDecay_D1D2,0.0
+HIV,Normal,spikeProduction_D3,0.0
+HIV,Normal,spikeDecay_D3,0.0
+HIV,Normal,RBDProduction_D1D2,0.0
+HIV,Normal,RBDDecay_D1D2,0.0
+HIV,Normal,RBDProduction_D3,0.0
+HIV,Normal,RBDDecay_D3,0.0
+HIV,Normal,V1_blood_IgGspike,0.6666666666666666
+HIV,Normal,V4_blood_IgGspike,1.0
+HIV,Normal,V4a_blood_IgGspike,1.0
+HIV,Normal,V6_blood_IgGspike,0.6666666666666666
+HIV,Normal,V8_blood_IgGspike,1.0
+HIV,Normal,V8a_blood_IgGspike,1.0
+HIV,Normal,V8b_blood_IgGspike,0.0
+HIV,Normal,V9_blood_IgGspike,1.0
+HIV,Normal,V10_blood_IgGspike,0.6666666666666666
+HIV,Normal,V11_blood_IgGspike,0.0
+HIV,Normal,V1_blood_IgGRBD,0.0
+HIV,Normal,V4_blood_IgGRBD,1.0
+HIV,Normal,V4a_blood_IgGRBD,0.3333333333333333
+HIV,Normal,V6_blood_IgGRBD,1.0
+HIV,Normal,V8_blood_IgGRBD,1.0
+HIV,Normal,V8a_blood_IgGRBD,1.0
+HIV,Normal,V8b_blood_IgGRBD,1.0
+HIV,Normal,V9_blood_IgGRBD,1.0
+HIV,Normal,V10_blood_IgGRBD,1.0
+HIV,Normal,V11_blood_IgGRBD,1.0
+HIV,Normal,V4_Saliva_IgGspike,0.6666666666666666
+HIV,Normal,V4_Saliva_IgGRBD,1.0
+HIV,Normal,V5_Saliva_IgGspike,1.0
+HIV,Normal,V5_Saliva_IgGRBD,1.0
+HIV,Normal,V8_Saliva_IgGspike,1.0
+HIV,Normal,V8_Saliva_IgGRBD,1.0
+HIV,Normal,V8b_Saliva_IgGspike,0.0
+HIV,Normal,V8b_Saliva_IgGRBD,0.6666666666666666
+HIV,Normal,V9_Saliva_IgGspike,1.0
+HIV,Normal,V9_Saliva_IgGRBD,1.0
+HIV,Normal,V4_Saliva_IgAspike,0.6666666666666666
+HIV,Normal,V4_Saliva_IgARBD,1.0
+HIV,Normal,V5_Saliva_IgAspike,1.0
+HIV,Normal,V5_Saliva_IgARBD,1.0
+HIV,Normal,V8_Saliva_IgAspike,0.0
+HIV,Normal,V8_Saliva_IgARBD,1.0
+HIV,Normal,V8b_Saliva_IgAspike,1.0
+HIV,Normal,V8b_Saliva_IgARBD,0.6666666666666666
+HIV,Normal,V9_Saliva_IgAspike,1.0
+HIV,Normal,V9_Saliva_IgARBD,1.0
+HIV,Normal,V8_IFNg,1.0
+HIV,Normal,V9_IFNg,1.0
+HIV,Normal,V8_IL2,1.0
+HIV,Normal,V9_IL2,1.0
+HIV,Normal,V9Dual,1.0
+HIV,Normal,V8Dual,0.6666666666666666
+HIV,Normal,IFNG_production,0.0
+HIV,Normal,Il2_production,0.0
+HIV,Normal,RATIO_CD4CD8,0.0
+HIV,Normal,V8Neut,1.0
+HIV,Normal,V9Neut,1.0
+HIV,Normal,V7_ACE2,1.0
+HIV,Normal,V8_ACE2,1.0
+HIV,Normal,V8b_ACE2,1.0
+HIV,Normal,V9_ACE2,1.0
+HIV,Log-normal,spikeProduction_D1D2,0.0
+HIV,Log-normal,spikeDecay_D1D2,0.0
+HIV,Log-normal,spikeProduction_D3,0.0
+HIV,Log-normal,spikeDecay_D3,0.0
+HIV,Log-normal,RBDProduction_D1D2,0.0
+HIV,Log-normal,RBDDecay_D1D2,0.0
+HIV,Log-normal,RBDProduction_D3,0.0
+HIV,Log-normal,RBDDecay_D3,0.0
+HIV,Log-normal,V1_blood_IgGspike,0.6666666666666666
+HIV,Log-normal,V4_blood_IgGspike,1.0
+HIV,Log-normal,V4a_blood_IgGspike,1.0
+HIV,Log-normal,V6_blood_IgGspike,0.6666666666666666
+HIV,Log-normal,V8_blood_IgGspike,0.6666666666666666
+HIV,Log-normal,V8a_blood_IgGspike,0.6666666666666666
+HIV,Log-normal,V8b_blood_IgGspike,0.0
+HIV,Log-normal,V9_blood_IgGspike,0.3333333333333333
+HIV,Log-normal,V10_blood_IgGspike,1.0
+HIV,Log-normal,V11_blood_IgGspike,0.0
+HIV,Log-normal,V1_blood_IgGRBD,0.0
+HIV,Log-normal,V4_blood_IgGRBD,1.0
+HIV,Log-normal,V4a_blood_IgGRBD,0.6666666666666666
+HIV,Log-normal,V6_blood_IgGRBD,0.6666666666666666
+HIV,Log-normal,V8_blood_IgGRBD,1.0
+HIV,Log-normal,V8a_blood_IgGRBD,1.0
+HIV,Log-normal,V8b_blood_IgGRBD,0.6666666666666666
+HIV,Log-normal,V9_blood_IgGRBD,1.0
+HIV,Log-normal,V10_blood_IgGRBD,1.0
+HIV,Log-normal,V11_blood_IgGRBD,1.0
+HIV,Log-normal,V4_Saliva_IgGspike,1.0
+HIV,Log-normal,V4_Saliva_IgGRBD,1.0
+HIV,Log-normal,V5_Saliva_IgGspike,1.0
+HIV,Log-normal,V5_Saliva_IgGRBD,1.0
+HIV,Log-normal,V8_Saliva_IgGspike,1.0
+HIV,Log-normal,V8_Saliva_IgGRBD,1.0
+HIV,Log-normal,V8b_Saliva_IgGspike,0.0
+HIV,Log-normal,V8b_Saliva_IgGRBD,0.3333333333333333
+HIV,Log-normal,V9_Saliva_IgGspike,0.6666666666666666
+HIV,Log-normal,V9_Saliva_IgGRBD,1.0
+HIV,Log-normal,V4_Saliva_IgAspike,1.0
+HIV,Log-normal,V4_Saliva_IgARBD,1.0
+HIV,Log-normal,V5_Saliva_IgAspike,1.0
+HIV,Log-normal,V5_Saliva_IgARBD,1.0
+HIV,Log-normal,V8_Saliva_IgAspike,0.6666666666666666
+HIV,Log-normal,V8_Saliva_IgARBD,1.0
+HIV,Log-normal,V8b_Saliva_IgAspike,1.0
+HIV,Log-normal,V8b_Saliva_IgARBD,0.3333333333333333
+HIV,Log-normal,V9_Saliva_IgAspike,0.6666666666666666
+HIV,Log-normal,V9_Saliva_IgARBD,0.6666666666666666
+HIV,Log-normal,V8_IFNg,0.3333333333333333
+HIV,Log-normal,V9_IFNg,1.0
+HIV,Log-normal,V8_IL2,0.3333333333333333
+HIV,Log-normal,V9_IL2,0.3333333333333333
+HIV,Log-normal,V9Dual,0.6666666666666666
+HIV,Log-normal,V8Dual,0.6666666666666666
+HIV,Log-normal,IFNG_production,0.3333333333333333
+HIV,Log-normal,Il2_production,0.3333333333333333
+HIV,Log-normal,RATIO_CD4CD8,0.3333333333333333
+HIV,Log-normal,V8Neut,1.0
+HIV,Log-normal,V9Neut,1.0
+HIV,Log-normal,V7_ACE2,0.6666666666666666
+HIV,Log-normal,V8_ACE2,0.6666666666666666
+HIV,Log-normal,V8b_ACE2,0.6666666666666666
+HIV,Log-normal,V9_ACE2,1.0
+HIV,Class GMM,spikeProduction_D1D2,0.0
+HIV,Class GMM,spikeDecay_D1D2,0.0
+HIV,Class GMM,spikeProduction_D3,0.0
+HIV,Class GMM,spikeDecay_D3,0.0
+HIV,Class GMM,RBDProduction_D1D2,0.0
+HIV,Class GMM,RBDDecay_D1D2,0.0
+HIV,Class GMM,RBDProduction_D3,0.0
+HIV,Class GMM,RBDDecay_D3,0.0
+HIV,Class GMM,V1_blood_IgGspike,0.3333333333333333
+HIV,Class GMM,V4_blood_IgGspike,1.0
+HIV,Class GMM,V4a_blood_IgGspike,0.6666666666666666
+HIV,Class GMM,V6_blood_IgGspike,0.3333333333333333
+HIV,Class GMM,V8_blood_IgGspike,1.0
+HIV,Class GMM,V8a_blood_IgGspike,1.0
+HIV,Class GMM,V8b_blood_IgGspike,0.0
+HIV,Class GMM,V9_blood_IgGspike,0.3333333333333333
+HIV,Class GMM,V10_blood_IgGspike,1.0
+HIV,Class GMM,V11_blood_IgGspike,0.0
+HIV,Class GMM,V1_blood_IgGRBD,0.0
+HIV,Class GMM,V4_blood_IgGRBD,1.0
+HIV,Class GMM,V4a_blood_IgGRBD,0.3333333333333333
+HIV,Class GMM,V6_blood_IgGRBD,1.0
+HIV,Class GMM,V8_blood_IgGRBD,1.0
+HIV,Class GMM,V8a_blood_IgGRBD,1.0
+HIV,Class GMM,V8b_blood_IgGRBD,0.3333333333333333
+HIV,Class GMM,V9_blood_IgGRBD,1.0
+HIV,Class GMM,V10_blood_IgGRBD,1.0
+HIV,Class GMM,V11_blood_IgGRBD,1.0
+HIV,Class GMM,V4_Saliva_IgGspike,1.0
+HIV,Class GMM,V4_Saliva_IgGRBD,1.0
+HIV,Class GMM,V5_Saliva_IgGspike,0.6666666666666666
+HIV,Class GMM,V5_Saliva_IgGRBD,0.6666666666666666
+HIV,Class GMM,V8_Saliva_IgGspike,1.0
+HIV,Class GMM,V8_Saliva_IgGRBD,1.0
+HIV,Class GMM,V8b_Saliva_IgGspike,0.0
+HIV,Class GMM,V8b_Saliva_IgGRBD,0.3333333333333333
+HIV,Class GMM,V9_Saliva_IgGspike,0.6666666666666666
+HIV,Class GMM,V9_Saliva_IgGRBD,1.0
+HIV,Class GMM,V4_Saliva_IgAspike,1.0
+HIV,Class GMM,V4_Saliva_IgARBD,0.6666666666666666
+HIV,Class GMM,V5_Saliva_IgAspike,1.0
+HIV,Class GMM,V5_Saliva_IgARBD,1.0
+HIV,Class GMM,V8_Saliva_IgAspike,0.3333333333333333
+HIV,Class GMM,V8_Saliva_IgARBD,1.0
+HIV,Class GMM,V8b_Saliva_IgAspike,1.0
+HIV,Class GMM,V8b_Saliva_IgARBD,0.6666666666666666
+HIV,Class GMM,V9_Saliva_IgAspike,0.6666666666666666
+HIV,Class GMM,V9_Saliva_IgARBD,1.0
+HIV,Class GMM,V8_IFNg,0.6666666666666666
+HIV,Class GMM,V9_IFNg,0.6666666666666666
+HIV,Class GMM,V8_IL2,0.6666666666666666
+HIV,Class GMM,V9_IL2,1.0
+HIV,Class GMM,V9Dual,0.0
+HIV,Class GMM,V8Dual,0.6666666666666666
+HIV,Class GMM,IFNG_production,0.0
+HIV,Class GMM,Il2_production,0.0
+HIV,Class GMM,RATIO_CD4CD8,0.0
+HIV,Class GMM,V8Neut,0.3333333333333333
+HIV,Class GMM,V9Neut,1.0
+HIV,Class GMM,V7_ACE2,1.0
+HIV,Class GMM,V8_ACE2,1.0
+HIV,Class GMM,V8b_ACE2,1.0
+HIV,Class GMM,V9_ACE2,1.0
+Breast Cancer,Normal,mean radius,0.0
+Breast Cancer,Normal,mean texture,0.3333333333333333
+Breast Cancer,Normal,mean perimeter,0.0
+Breast Cancer,Normal,mean area,0.0
+Breast Cancer,Normal,mean smoothness,0.0
+Breast Cancer,Normal,mean compactness,0.0
+Breast Cancer,Normal,mean concavity,0.0
+Breast Cancer,Normal,mean concave points,0.0
+Breast Cancer,Normal,mean symmetry,0.0
+Breast Cancer,Normal,mean fractal dimension,0.0
+Breast Cancer,Normal,radius error,0.0
+Breast Cancer,Normal,texture error,0.3333333333333333
+Breast Cancer,Normal,perimeter error,0.3333333333333333
+Breast Cancer,Normal,area error,0.3333333333333333
+Breast Cancer,Normal,smoothness error,0.0
+Breast Cancer,Normal,compactness error,0.0
+Breast Cancer,Normal,concavity error,0.0
+Breast Cancer,Normal,concave points error,0.0
+Breast Cancer,Normal,symmetry error,0.0
+Breast Cancer,Normal,fractal dimension error,0.0
+Breast Cancer,Normal,worst radius,0.0
+Breast Cancer,Normal,worst texture,0.3333333333333333
+Breast Cancer,Normal,worst perimeter,0.0
+Breast Cancer,Normal,worst area,0.3333333333333333
+Breast Cancer,Normal,worst smoothness,0.0
+Breast Cancer,Normal,worst compactness,0.0
+Breast Cancer,Normal,worst concavity,0.0
+Breast Cancer,Normal,worst concave points,0.0
+Breast Cancer,Normal,worst symmetry,0.0
+Breast Cancer,Normal,worst fractal dimension,0.0
+Breast Cancer,Log-normal,mean radius,0.3333333333333333
+Breast Cancer,Log-normal,mean texture,0.3333333333333333
+Breast Cancer,Log-normal,mean perimeter,0.3333333333333333
+Breast Cancer,Log-normal,mean area,0.3333333333333333
+Breast Cancer,Log-normal,mean smoothness,0.3333333333333333
+Breast Cancer,Log-normal,mean compactness,0.3333333333333333
+Breast Cancer,Log-normal,mean concavity,0.0
+Breast Cancer,Log-normal,mean concave points,0.0
+Breast Cancer,Log-normal,mean symmetry,0.6666666666666666
+Breast Cancer,Log-normal,mean fractal dimension,0.6666666666666666
+Breast Cancer,Log-normal,radius error,0.3333333333333333
+Breast Cancer,Log-normal,texture error,0.3333333333333333
+Breast Cancer,Log-normal,perimeter error,0.3333333333333333
+Breast Cancer,Log-normal,area error,0.3333333333333333
+Breast Cancer,Log-normal,smoothness error,0.3333333333333333
+Breast Cancer,Log-normal,compactness error,0.3333333333333333
+Breast Cancer,Log-normal,concavity error,0.0
+Breast Cancer,Log-normal,concave points error,0.0
+Breast Cancer,Log-normal,symmetry error,1.0
+Breast Cancer,Log-normal,fractal dimension error,0.6666666666666666
+Breast Cancer,Log-normal,worst radius,0.3333333333333333
+Breast Cancer,Log-normal,worst texture,0.3333333333333333
+Breast Cancer,Log-normal,worst perimeter,0.3333333333333333
+Breast Cancer,Log-normal,worst area,0.3333333333333333
+Breast Cancer,Log-normal,worst smoothness,0.0
+Breast Cancer,Log-normal,worst compactness,0.0
+Breast Cancer,Log-normal,worst concavity,0.0
+Breast Cancer,Log-normal,worst concave points,0.0
+Breast Cancer,Log-normal,worst symmetry,0.3333333333333333
+Breast Cancer,Log-normal,worst fractal dimension,0.0
+Breast Cancer,Class GMM,mean radius,0.0
+Breast Cancer,Class GMM,mean texture,0.3333333333333333
+Breast Cancer,Class GMM,mean perimeter,0.3333333333333333
+Breast Cancer,Class GMM,mean area,0.3333333333333333
+Breast Cancer,Class GMM,mean smoothness,0.3333333333333333
+Breast Cancer,Class GMM,mean compactness,0.0
+Breast Cancer,Class GMM,mean concavity,0.0
+Breast Cancer,Class GMM,mean concave points,0.0
+Breast Cancer,Class GMM,mean symmetry,0.0
+Breast Cancer,Class GMM,mean fractal dimension,0.0
+Breast Cancer,Class GMM,radius error,0.0
+Breast Cancer,Class GMM,texture error,0.0
+Breast Cancer,Class GMM,perimeter error,0.0
+Breast Cancer,Class GMM,area error,0.3333333333333333
+Breast Cancer,Class GMM,smoothness error,0.0
+Breast Cancer,Class GMM,compactness error,0.0
+Breast Cancer,Class GMM,concavity error,0.0
+Breast Cancer,Class GMM,concave points error,0.0
+Breast Cancer,Class GMM,symmetry error,0.0
+Breast Cancer,Class GMM,fractal dimension error,0.0
+Breast Cancer,Class GMM,worst radius,0.0
+Breast Cancer,Class GMM,worst texture,0.0
+Breast Cancer,Class GMM,worst perimeter,0.0
+Breast Cancer,Class GMM,worst area,0.3333333333333333
+Breast Cancer,Class GMM,worst smoothness,0.0
+Breast Cancer,Class GMM,worst compactness,0.0
+Breast Cancer,Class GMM,worst concavity,0.0
+Breast Cancer,Class GMM,worst concave points,0.0
+Breast Cancer,Class GMM,worst symmetry,0.0
+Breast Cancer,Class GMM,worst fractal dimension,0.0
+Diabetes,Normal,preg,1.0
+Diabetes,Normal,plas,1.0
+Diabetes,Normal,pres,0.0
+Diabetes,Normal,skin,1.0
+Diabetes,Normal,insu,1.0
+Diabetes,Normal,mass,0.0
+Diabetes,Normal,pedi,0.3333333333333333
+Diabetes,Normal,age,0.0
+Diabetes,Log-normal,preg,1.0
+Diabetes,Log-normal,plas,0.3333333333333333
+Diabetes,Log-normal,pres,0.0
+Diabetes,Log-normal,skin,0.3333333333333333
+Diabetes,Log-normal,insu,1.0
+Diabetes,Log-normal,mass,0.0
+Diabetes,Log-normal,pedi,0.0
+Diabetes,Log-normal,age,0.6666666666666666
+Diabetes,Class GMM,preg,0.6666666666666666
+Diabetes,Class GMM,plas,0.6666666666666666
+Diabetes,Class GMM,pres,0.0
+Diabetes,Class GMM,skin,1.0
+Diabetes,Class GMM,insu,1.0
+Diabetes,Class GMM,mass,0.6666666666666666
+Diabetes,Class GMM,pedi,0.0
+Diabetes,Class GMM,age,0.0

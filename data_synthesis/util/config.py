@@ -21,6 +21,9 @@ class Config:
     # CVAE specific
     beta: float = 0.5
     decoder_noise: float = 0
+    # normal | standardized_lognormal | class_conditional_gmm
+    latent_prior: str = "normal"
+    prior_components: int = 2
 #____________________
     # Keys inside .RData
     x_key: str = "x"

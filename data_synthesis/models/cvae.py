@@ -1,6 +1,7 @@
 # models/cvae.py
 from __future__ import annotations
 
+import math
 from typing import Optional, Tuple
 
 import numpy as np
@@ -20,11 +21,36 @@ class CVAE(nn.Module):
     Reparam: z = mu + exp(0.5*logvar) * eps
     Decoder: [z, c] -> x_hat
     """
-    def __init__(self, x_dim: int, c_dim: int, z_dim: int, hidden: int):
+    PRIOR_ALIASES = {
+        "normal": "normal",
+        "standard_normal": "normal",
+        "lognormal": "standardized_lognormal",
+        "standardized_lognormal": "standardized_lognormal",
+        "class_gmm": "class_conditional_gmm",
+        "class_conditional_gmm": "class_conditional_gmm",
+    }
+
+    def __init__(
+        self,
+        x_dim: int,
+        c_dim: int,
+        z_dim: int,
+        hidden: int,
+        prior_type: str = "normal",
+        prior_components: int = 2,
+    ):
         super().__init__()
         self.x_dim = x_dim
         self.c_dim = c_dim
         self.z_dim = z_dim
+        try:
+            self.prior_type = self.PRIOR_ALIASES[prior_type.strip().lower()]
+        except KeyError as exc:
+            choices = sorted(set(self.PRIOR_ALIASES.values()))
+            raise ValueError(f"Unknown latent prior {prior_type!r}; choose from {choices}.") from exc
+        self.prior_components = int(prior_components)
+        if self.prior_components < 1:
+            raise ValueError("prior_components must be at least 1.")
 
         self.enc = nn.Sequential(
             nn.Linear(x_dim + c_dim, hidden),
@@ -43,16 +69,89 @@ class CVAE(nn.Module):
             nn.Linear(hidden, x_dim),
         )
 
+        if self.prior_type == "class_conditional_gmm":
+            self.prior_logits = nn.Parameter(torch.zeros(c_dim, self.prior_components))
+            prior_means = torch.zeros(c_dim, self.prior_components, z_dim)
+            offsets = torch.linspace(-0.5, 0.5, self.prior_components)
+            for component, offset in enumerate(offsets):
+                prior_means[:, component, component % z_dim] = offset
+            self.prior_means = nn.Parameter(prior_means)
+            self.prior_logvars = nn.Parameter(
+                torch.zeros(c_dim, self.prior_components, z_dim)
+            )
+
     def encode(self, x: torch.Tensor, c: torch.Tensor):
         xc = torch.cat([x, c], dim=1)
         h = self.enc(xc)
         return self.mu(h), self.logvar(h)
 
-    @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor):
+    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor):
         eps = torch.randn_like(mu)
         sigma = torch.exp(0.5 * logvar)
-        return mu + sigma * eps
+        base_z = mu + sigma * eps
+        return self._transform_base_latent(base_z)
+
+    def _transform_base_latent(self, base_z: torch.Tensor):
+        if self.prior_type != "standardized_lognormal":
+            return base_z
+        # If base_z ~ N(0, 1), this has mean 0 and variance 1. That keeps
+        # latent scale matched to the normal baseline while changing skewness.
+        mean = math.exp(0.5)
+        std = math.sqrt((math.e - 1.0) * math.e)
+        return (torch.exp(base_z) - mean) / std
+
+    def latent_kl(self, mu: torch.Tensor, logvar: torch.Tensor, c: torch.Tensor):
+        if self.prior_type != "class_conditional_gmm":
+            return (
+                -0.5
+                * (1.0 + logvar - mu**2 - torch.exp(logvar)).sum(dim=1)
+            ).mean()
+
+        # One-sample Monte Carlo KL(q(z|x,c) || p(z|c)). The posterior is a
+        # diagonal Gaussian and p(z|c) is a learned diagonal Gaussian mixture.
+        eps = torch.randn_like(mu)
+        z = mu + torch.exp(0.5 * logvar) * eps
+        log_q = -0.5 * (
+            math.log(2.0 * math.pi)
+            + logvar
+            + (z - mu).square() * torch.exp(-logvar)
+        ).sum(dim=1)
+
+        labels = c.argmax(dim=1)
+        component_means = self.prior_means[labels]
+        component_logvars = self.prior_logvars[labels].clamp(-12.0, 12.0)
+        component_log_probs = -0.5 * (
+            math.log(2.0 * math.pi)
+            + component_logvars
+            + (z[:, None, :] - component_means).square()
+            * torch.exp(-component_logvars)
+        ).sum(dim=2)
+        log_weights = F.log_softmax(self.prior_logits[labels], dim=1)
+        log_p = torch.logsumexp(log_weights + component_log_probs, dim=1)
+        return (log_q - log_p).mean()
+
+    def sample_prior(
+        self,
+        n: int,
+        label: int,
+        device: torch.device,
+        generator: torch.Generator,
+    ):
+        if self.prior_type == "class_conditional_gmm":
+            weights = F.softmax(self.prior_logits[label], dim=0)
+            components = torch.multinomial(
+                weights.expand(n, -1),
+                num_samples=1,
+                replacement=True,
+                generator=generator,
+            ).squeeze(1)
+            means = self.prior_means[label, components]
+            logvars = self.prior_logvars[label, components].clamp(-12.0, 12.0)
+            eps = torch.randn(n, self.z_dim, device=device, generator=generator)
+            return means + torch.exp(0.5 * logvars) * eps
+
+        base_z = torch.randn(n, self.z_dim, device=device, generator=generator)
+        return self._transform_base_latent(base_z)
 
     def decode(self, z: torch.Tensor, c: torch.Tensor):
         zc = torch.cat([z, c], dim=1)
@@ -67,9 +166,9 @@ class CVAE(nn.Module):
 
 # training / sampling helpers 
 
-def _elbo_loss(x, x_hat, mu, logvar, beta: float):
+def _elbo_loss(x, x_hat, mu, logvar, c, model, beta: float):
     recon = ((x_hat - x) ** 2).sum(dim=1).mean()
-    kl = (-0.5 * (1.0 + logvar - mu**2 - torch.exp(logvar)).sum(dim=1)).mean()
+    kl = model.latent_kl(mu, logvar, c)
     return recon + beta * kl, recon, kl
 
 
@@ -81,7 +180,7 @@ def _evaluate(model, loader, device, beta: float):
     for x, c in loader:
         x, c = x.to(device), c.to(device)
         x_hat, mu, logvar = model(x, c)
-        loss, r, k = _elbo_loss(x, x_hat, mu, logvar, beta)
+        loss, r, k = _elbo_loss(x, x_hat, mu, logvar, c, model, beta)
         tot += loss.item(); rec += r.item(); kl += k.item(); n += 1
     return {"loss": tot/n, "recon": rec/n, "kl": kl/n}
 
@@ -121,7 +220,14 @@ def train_cvae(
     )
 
     x_dim = X.shape[1]
-    model = CVAE(x_dim=x_dim, c_dim=2, z_dim=cfg.z_dim, hidden=cfg.hidden).to(device)
+    model = CVAE(
+        x_dim=x_dim,
+        c_dim=2,
+        z_dim=cfg.z_dim,
+        hidden=cfg.hidden,
+        prior_type=cfg.latent_prior,
+        prior_components=cfg.prior_components,
+    ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     best_val = float("inf")
@@ -137,7 +243,9 @@ def train_cvae(
             x_hat, mu, logvar = model(x, c)
             if cfg.decoder_noise > 0:
                 x_hat = x_hat + cfg.decoder_noise * torch.randn_like(x_hat)
-            loss, r, k = _elbo_loss(x, x_hat, mu, logvar, beta=cfg.beta)
+            loss, r, k = _elbo_loss(
+                x, x_hat, mu, logvar, c, model, beta=cfg.beta
+            )
             loss.backward()
             opt.step()
             tot += loss.item(); rec += r.item(); kl += k.item(); n += 1
@@ -171,7 +279,7 @@ def _sample_from_model(model, n0, n1, mean, scale, transform, device, seed):
     g = torch.Generator(device=device).manual_seed(seed)
 
     def _one(n, label):
-        z = torch.randn(n, model.z_dim, device=device, generator=g)
+        z = model.sample_prior(n, label, device=device, generator=g)
         c = F.one_hot(
             torch.full((n,), label, dtype=torch.long, device=device),
             num_classes=model.c_dim,
