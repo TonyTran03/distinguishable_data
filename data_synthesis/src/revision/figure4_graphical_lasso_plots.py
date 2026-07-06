@@ -16,6 +16,8 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn import covariance
 from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
+from sklearn.metrics import silhouette_score
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 
@@ -1094,28 +1096,177 @@ def plot_figure4_edge_status_all_datasets(
 
 
 
-def _fit_profile_tsne(partial_corr, seed=123, perplexity=None):
+def _fit_profile_tsne(
+    partial_corr,
+    seed=123,
+    perplexity=None,
+    n_components=2,
+    metric="euclidean",
+):
     """Embed features from their Graphical Lasso partial-correlation profiles."""
     profiles = np.asarray(partial_corr, dtype=float).copy()
     np.fill_diagonal(profiles, 0.0)
     profiles = StandardScaler().fit_transform(profiles)
     n_features = profiles.shape[0]
+    n_components = int(n_components)
+    if n_components not in (2, 3):
+        raise ValueError("Feature-profile t-SNE supports 2 or 3 components.")
     if perplexity is None:
         perplexity = min(30, max(2, (n_features - 1) // 3))
     perplexity = float(min(perplexity, max(1, n_features - 1)))
     kwargs = dict(
-        n_components=2,
+        n_components=n_components,
         perplexity=perplexity,
         init="pca",
         learning_rate="auto",
         random_state=seed,
-        metric="euclidean",
+        metric=metric,
     )
     try:
         coords = TSNE(max_iter=1500, **kwargs).fit_transform(profiles)
     except TypeError:
         coords = TSNE(n_iter=1500, **kwargs).fit_transform(profiles)
     return coords, profiles, perplexity
+
+
+def _project_3d_view(coords, azimuth, elevation):
+    """Orthographically project 3D coordinates for a Matplotlib camera view."""
+    coords = np.asarray(coords, dtype=float)
+    if coords.ndim != 2 or coords.shape[1] != 3:
+        raise ValueError("coords must have shape (n_points, 3).")
+    azimuth = np.deg2rad(float(azimuth))
+    elevation = np.deg2rad(float(elevation))
+    screen_x = np.array([-np.sin(azimuth), np.cos(azimuth), 0.0])
+    view = np.array([
+        np.cos(elevation) * np.cos(azimuth),
+        np.cos(elevation) * np.sin(azimuth),
+        np.sin(elevation),
+    ])
+    screen_y = np.cross(view, screen_x)
+    return np.column_stack((coords @ screen_x, coords @ screen_y))
+
+
+def choose_tsne_3d_view(
+    coords,
+    cluster_labels,
+    azimuth_step=5,
+    elevation_step=5,
+    neighbor_count=5,
+):
+    """Choose a reproducible camera view that makes fixed clusters easiest to see.
+
+    The cluster labels are not learned from the 3D t-SNE coordinates. Candidate
+    views are scored by 2D silhouette and nearest-neighbour label agreement.
+    """
+    coords = np.asarray(coords, dtype=float)
+    labels = np.asarray(cluster_labels)
+    if coords.ndim != 2 or coords.shape[1] != 3:
+        raise ValueError("coords must have shape (n_points, 3).")
+    if len(labels) != len(coords):
+        raise ValueError("cluster_labels must contain one label per point.")
+    unique, counts = np.unique(labels, return_counts=True)
+    can_score_silhouette = len(unique) > 1 and len(unique) < len(labels) and np.all(counts >= 2)
+    k = min(max(1, int(neighbor_count)), len(coords) - 1)
+
+    best = None
+    for elevation in range(-60, 61, int(elevation_step)):
+        for azimuth in range(-180, 180, int(azimuth_step)):
+            projected = StandardScaler().fit_transform(
+                _project_3d_view(coords, azimuth, elevation)
+            )
+            silhouette = (
+                float(silhouette_score(projected, labels))
+                if can_score_silhouette
+                else 0.0
+            )
+            neighbors = NearestNeighbors(n_neighbors=k + 1).fit(projected)
+            indices = neighbors.kneighbors(return_distance=False)[:, 1:]
+            local_agreement = float(np.mean(labels[indices] == labels[:, None]))
+            score = 0.7 * silhouette + 0.3 * local_agreement
+            candidate = {
+                "azimuth": float(azimuth),
+                "elevation": float(elevation),
+                "score": score,
+                "silhouette": silhouette,
+                "local_agreement": local_agreement,
+            }
+            if best is None or candidate["score"] > best["score"]:
+                best = candidate
+    return best
+
+
+def plot_profile_tsne_3d(
+    partial_corr,
+    cluster_labels,
+    feature_names=None,
+    seed=123,
+    perplexity=None,
+    metric="euclidean",
+    label_top=0,
+    title=None,
+    save_path=None,
+):
+    """Draw a 3D feature-profile t-SNE using a data-selected camera angle."""
+    coords, profiles, used_perplexity = _fit_profile_tsne(
+        partial_corr,
+        seed=seed,
+        perplexity=perplexity,
+        n_components=3,
+        metric=metric,
+    )
+    labels = np.asarray(cluster_labels)
+    if len(labels) != len(coords):
+        raise ValueError("cluster_labels must contain one label per feature.")
+    view = choose_tsne_3d_view(coords, labels)
+    colors = _cluster_color_map(labels)
+
+    fig = plt.figure(figsize=(9.5, 7.8))
+    ax = fig.add_subplot(111, projection="3d")
+    for cluster in np.unique(labels):
+        mask = labels == cluster
+        ax.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            coords[mask, 2],
+            s=58,
+            color=colors[int(cluster)],
+            edgecolor="#222222",
+            linewidth=0.55,
+            alpha=0.90,
+            depthshade=False,
+            label=f"cluster {int(cluster)} (n={int(mask.sum())})",
+        )
+
+    if feature_names is not None and int(label_top) > 0:
+        names = list(feature_names)
+        centrality = np.sum(np.abs(np.asarray(partial_corr, dtype=float)), axis=1)
+        for node in np.argsort(-centrality)[: int(label_top)]:
+            ax.text(
+                *coords[node],
+                _short_label(names[node], 18),
+                fontsize=6.4,
+                color="#111111",
+            )
+
+    ax.view_init(elev=view["elevation"], azim=view["azimuth"])
+    ax.set_xlabel("t-SNE 1")
+    ax.set_ylabel("t-SNE 2")
+    ax.set_zlabel("t-SNE 3")
+    ax.set_title(
+        title
+        or (
+            f"3D t-SNE of feature dependency profiles "
+            f"(perplexity={used_perplexity:.0f}, metric={metric})\n"
+            f"camera: azimuth={view['azimuth']:.0f}°, elevation={view['elevation']:.0f}°"
+        ),
+        fontsize=11,
+        weight="semibold",
+    )
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=False, fontsize=8)
+    fig.subplots_adjust(left=0.02, right=0.79, top=0.90, bottom=0.03)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+    return fig, ax, coords, profiles, used_perplexity, view
 
 
 def build_feature_preservation_scores(real_edges, synthetic_edge_map, n_features, epsilon=1e-12):

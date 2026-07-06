@@ -96,6 +96,8 @@ def compute_sample_size_auc_table(
                                 epochs=cvae_epochs,
                                 batch_size=32,
                                 test_size=cvae_val_size,
+                                x_transform=MAIN_CVAE_X_TRANSFORM,
+                                latent_prior=MAIN_CVAE_LATENT_PRIOR,
                             ),
                             verbose=False,
                         )

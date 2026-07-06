@@ -19,7 +19,18 @@ def compute_noise_sensitivity(datasets, seed=SEED, repeats=NOISE_REPEATS, sigmas
         stds = np.where(stds == 0, 1.0, stds)
         feat_cols = [f"f{i}" for i in range(X_sub.shape[1])]
         print(f"[noise] training CVAE for {ds}")
-        state = train_cvae(X_sub, y_sub, cfg=Config(seed=seed, epochs=cvae_epochs, batch_size=32), verbose=False)
+        state = train_cvae(
+            X_sub,
+            y_sub,
+            cfg=Config(
+                seed=seed,
+                epochs=cvae_epochs,
+                batch_size=32,
+                x_transform=MAIN_CVAE_X_TRANSFORM,
+                latent_prior=MAIN_CVAE_LATENT_PRIOR,
+            ),
+            verbose=False,
+        )
         generators = {
             "Bootstrap": lambda s: sample_bootstrap(X_sub, y_sub, n0, n1, seed=s),
             "Column-wise": lambda s: sample_columnwise(X_sub, y_sub, n0, n1, seed=s),

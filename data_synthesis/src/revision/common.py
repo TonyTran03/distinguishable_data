@@ -47,6 +47,11 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 SEED = 42
 
+# The main revision notebook uses the conventional CVAE baseline: raw features
+# standardized in the loader and a shared standard-normal latent prior.
+MAIN_CVAE_X_TRANSFORM = "none"
+MAIN_CVAE_LATENT_PRIOR = "normal"
+
 REVISION_RUN_MODE = "final"
 
 RUN_MODE = REVISION_RUN_MODE
@@ -210,7 +215,12 @@ def sample_synthetic(dataset, data, method, seed=SEED, cvae_epochs=CVAE_EPOCHS):
     y = np.asarray(data["y"], dtype=int)
     n0, n1 = class_counts(y)
     if method == "CVAE":
-        cfg = Config(seed=seed, epochs=cvae_epochs)
+        cfg = Config(
+            seed=seed,
+            epochs=cvae_epochs,
+            x_transform=MAIN_CVAE_X_TRANSFORM,
+            latent_prior=MAIN_CVAE_LATENT_PRIOR,
+        )
         return sample_cvae(X, y, n0, n1, seed=seed, cfg=cfg)
     return METHODS[method](X, y, n0, n1, seed=seed)
 

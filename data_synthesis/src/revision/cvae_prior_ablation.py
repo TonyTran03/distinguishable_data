@@ -166,6 +166,9 @@ def run_ablation(epochs=200, repeats=1, seed=42, output_dir=None, verbose=False)
                 cfg = Config(
                     seed=run_seed,
                     epochs=epochs,
+                    # This is a supplementary sensitivity analysis and retains
+                    # the preprocessing used for its existing reported output.
+                    x_transform="log1p",
                     latent_prior=prior,
                     prior_components=2,
                 )

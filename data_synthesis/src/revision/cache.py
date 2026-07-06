@@ -5,7 +5,12 @@ import importlib
 
 
 def _cache_path(name):
-    return CACHE_DIR / f"{name}_{RUN_MODE}.pkl"
+    # Keep results from different CVAE preprocessing/prior choices isolated.
+    # This prevents the main notebook from silently reusing older log1p or
+    # alternative-prior outputs after its configuration changes.
+    transform = MAIN_CVAE_X_TRANSFORM.replace("_", "-")
+    prior = MAIN_CVAE_LATENT_PRIOR.replace("_", "-")
+    return CACHE_DIR / f"{name}_{RUN_MODE}_x-{transform}_p-{prior}.pkl"
 
 
 def _read_cache(name):

@@ -16,7 +16,9 @@ class Config:
     epochs: int = 200
     batch_size: int = 64
     lr: float = 1e-3
-    x_transform: str = "log1p" # none | log1p (distribution of X) 
+    # Main analyses use raw features followed by StandardScaler. Alternative
+    # feature transforms must opt in explicitly in supplementary experiments.
+    x_transform: str = "none"  # none | log1p
 
     # CVAE specific
     beta: float = 0.5

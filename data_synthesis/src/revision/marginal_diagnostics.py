@@ -7,6 +7,7 @@ are reported as a table and are intentionally not used to select plot features.
 
 from dataclasses import dataclass
 from collections.abc import Mapping
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from src.revision.common import *
 
@@ -147,6 +148,268 @@ def compute_marginal_test_table(
         "ks_statistic",
     ]
     return pd.DataFrame(rows, columns=columns)
+
+
+def _marginal_table_summary(marginal_table, dataset_order, method_order):
+    """Summarize feature-level marginal comparisons for a compact lead table."""
+    table = marginal_table.copy()
+    table["p_below_0_05"] = table["p_value"] < 0.05
+    summary = (
+        table.groupby(["dataset", "method"], sort=False)
+        .agg(
+            features_tested=("feature", "count"),
+            features_p_below_0_05=("p_below_0_05", "sum"),
+            median_p_value=("p_value", "median"),
+            mean_ks_statistic=("ks_statistic", "mean"),
+        )
+        .reset_index()
+    )
+    summary["percent_p_below_0_05"] = (
+        100
+        * summary["features_p_below_0_05"]
+        / summary["features_tested"]
+    )
+    dataset_rank = {name: index for index, name in enumerate(dataset_order)}
+    method_rank = {name: index for index, name in enumerate(method_order)}
+    summary["_dataset_order"] = summary["dataset"].map(dataset_rank)
+    summary["_method_order"] = summary["method"].map(method_rank)
+    return (
+        summary.sort_values(["_dataset_order", "_method_order"])
+        .drop(columns=["_dataset_order", "_method_order"])
+        .reset_index(drop=True)
+    )
+
+
+def _latex_table_fragment(table, caption, label, column_format, longtable):
+    """Render a booktabs table and apply supplement-friendly sizing."""
+    latex = table.to_latex(
+        index=False,
+        escape=True,
+        longtable=longtable,
+        caption=caption,
+        label=label,
+        column_format=column_format,
+        na_rep="--",
+    )
+    environment = "longtable" if longtable else "table"
+    if longtable:
+        return (
+            "\\begin{landscape}\n"
+            "\\begingroup\n"
+            "\\scriptsize\n"
+            "\\setlength{\\tabcolsep}{3pt}\n"
+            f"{latex}"
+            "\\endgroup\n"
+            "\\end{landscape}\n"
+        )
+    return (
+        f"\\begin{{{environment}}}[!htbp]\n"
+        "\\centering\n"
+        "\\small\n"
+        "\\setlength{\\tabcolsep}{4pt}\n"
+        + latex.replace(
+            f"\\begin{{{environment}}}",
+            "",
+            1,
+        ).replace(
+            f"\\end{{{environment}}}",
+            "",
+            1,
+        )
+        + f"\\end{{{environment}}}\n"
+    )
+
+
+def export_marginal_comparison_tables(
+    marginal_table,
+    output_dir,
+    dataset_order=None,
+    method_order=None,
+):
+    """Export complete original-method marginal comparisons for Overleaf.
+
+    The returned master file can be uploaded with the other generated files and
+    included from the supplement with
+    ``\\input{supplementary_marginal_comparisons}``.
+    """
+    dataset_order = list(dataset_order or marginal_table["dataset"].unique())
+    method_order = list(method_order or DEFAULT_COMPARISON_METHODS)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    table = marginal_table.copy()
+    table["p_below_0_05"] = table["p_value"] < 0.05
+    dataset_rank = {name: index for index, name in enumerate(dataset_order)}
+    method_rank = {name: index for index, name in enumerate(method_order)}
+    table["_dataset_order"] = table["dataset"].map(dataset_rank)
+    table["_method_order"] = table["method"].map(method_rank)
+    table = (
+        table.sort_values(
+            ["_dataset_order", "_method_order", "feature_index"]
+        )
+        .drop(columns=["_dataset_order", "_method_order"])
+        .reset_index(drop=True)
+    )
+
+    csv_path = output_dir / "supplementary_marginal_comparisons.csv"
+    table.to_csv(csv_path, index=False)
+
+    summary = _marginal_table_summary(
+        table,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    ).rename(
+        columns={
+            "dataset": "Dataset",
+            "method": "Method",
+            "features_tested": "Features",
+            "features_p_below_0_05": "p < 0.05",
+            "median_p_value": "Median p",
+            "mean_ks_statistic": "Mean KS",
+            "percent_p_below_0_05": "Percent p < 0.05",
+        }
+    )
+    summary["Median p"] = summary["Median p"].map(lambda value: f"{value:.3g}")
+    summary["Mean KS"] = summary["Mean KS"].map(lambda value: f"{value:.3f}")
+    summary["Percent p < 0.05"] = summary["Percent p < 0.05"].map(
+        lambda value: f"{value:.1f}%"
+    )
+    summary_path = output_dir / "supplementary_marginal_summary.tex"
+    summary_path.write_text(
+        _latex_table_fragment(
+            summary,
+            (
+                "Summary of feature-level marginal comparisons for the three "
+                "datasets and four original synthesis methods. Raw Welch "
+                "two-sample t-test p-values are reported without multiplicity "
+                "adjustment; KS denotes the two-sample Kolmogorov--Smirnov statistic."
+            ),
+            "tab:marginal-summary",
+            "@{}llrrrrr@{}",
+            longtable=False,
+        ),
+        encoding="utf-8",
+    )
+
+    detail_paths = {}
+    detail_columns = [
+        "method",
+        "feature_index",
+        "feature",
+        "n_real",
+        "n_synthetic",
+        "real_mean",
+        "synthetic_mean",
+        "mean_difference",
+        "t_statistic",
+        "p_value",
+        "ks_statistic",
+        "p_below_0_05",
+    ]
+    display_names = {
+        "method": "Method",
+        "feature_index": "No.",
+        "feature": "Feature",
+        "n_real": "n real",
+        "n_synthetic": "n synthetic",
+        "real_mean": "Real mean",
+        "synthetic_mean": "Synthetic mean",
+        "mean_difference": "Difference",
+        "t_statistic": "Welch t",
+        "p_value": "p",
+        "ks_statistic": "KS",
+        "p_below_0_05": "p < 0.05",
+    }
+    number_formats = {
+        "real_mean": lambda value: f"{value:.4g}",
+        "synthetic_mean": lambda value: f"{value:.4g}",
+        "mean_difference": lambda value: f"{value:+.4g}",
+        "t_statistic": lambda value: f"{value:+.3f}",
+        "p_value": lambda value: f"{value:.3g}",
+        "ks_statistic": lambda value: f"{value:.3f}",
+        "p_below_0_05": lambda value: "Yes" if value else "No",
+    }
+    for dataset in dataset_order:
+        detail = (
+            table.loc[table["dataset"] == dataset, detail_columns]
+            .reset_index(drop=True)
+        )
+        for column, formatter in number_formats.items():
+            detail[column] = detail[column].map(formatter)
+        detail = detail.rename(columns=display_names)
+        slug = str(dataset).lower().replace(" ", "_").replace("-", "_")
+        detail_path = output_dir / f"supplementary_marginal_{slug}.tex"
+        detail_path.write_text(
+            _latex_table_fragment(
+                detail,
+                (
+                    f"Complete feature-level marginal comparisons for {dataset}. "
+                    "Difference is synthetic minus real. Welch p-values are raw "
+                    "and unadjusted; KS is the two-sample Kolmogorov--Smirnov statistic."
+                ),
+                f"tab:marginal-{slug.replace('_', '-')}",
+                "@{}lrp{4.0cm}rrrrrrrrr@{}",
+                longtable=True,
+            ),
+            encoding="utf-8",
+        )
+        detail_paths[dataset] = detail_path
+
+    master_path = output_dir / "supplementary_marginal_comparisons.tex"
+    input_lines = [
+        "% Auto-generated by make_main_figures_revision.ipynb.",
+        "% Preamble requirements: \\usepackage{booktabs,longtable,pdflscape}",
+        "% Upload this file and the four referenced .tex files to one Overleaf folder.",
+        "\\input{supplementary_marginal_summary}",
+    ]
+    input_lines.extend(
+        f"\\input{{{path.stem}}}" for path in detail_paths.values()
+    )
+    master_path.write_text("\n".join(input_lines) + "\n", encoding="utf-8")
+
+    maintext_path = output_dir / "maintext_marginal_reference.tex"
+    detail_labels = [
+        f"\\ref{{tab:marginal-{str(dataset).lower().replace(' ', '-')}}}"
+        for dataset in dataset_order
+    ]
+    if len(detail_labels) == 1:
+        detail_refs = f"Table~{detail_labels[0]}"
+    elif len(detail_labels) == 2:
+        detail_refs = f"Tables~{detail_labels[0]} and {detail_labels[1]}"
+    else:
+        detail_refs = (
+            f"Tables~{', '.join(detail_labels[:-1])}, and {detail_labels[-1]}"
+        )
+    maintext_path.write_text(
+        (
+            "Complete feature-level marginal comparisons for all three datasets "
+            "and all four original synthesis methods are reported in "
+            f"{detail_refs}; a compact overview is provided in "
+            "Table~\\ref{tab:marginal-summary}.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    archive_path = output_dir / "overleaf_marginal_tables.zip"
+    archive_members = [
+        master_path,
+        summary_path,
+        *detail_paths.values(),
+        csv_path,
+        maintext_path,
+    ]
+    with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as archive:
+        for path in archive_members:
+            archive.write(path, arcname=path.name)
+
+    return {
+        "master": master_path,
+        "summary": summary_path,
+        "details": detail_paths,
+        "csv": csv_path,
+        "maintext_reference": maintext_path,
+        "archive": archive_path,
+    }
 
 
 def _short_feature_name(name, max_len=28):
