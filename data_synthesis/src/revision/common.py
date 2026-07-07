@@ -114,6 +114,69 @@ DATASET_ORDER = ["HIV", "Breast Cancer", "Diabetes"]
 
 DATASET_COLORS = {"HIV": "#D62728", "Breast Cancer": "#1DB100", "Diabetes": "#0076BA"}
 
+FIGURE_TEXT_COLOR = "#222222"
+FIGURE_SANS_SERIF = ["DejaVu Sans", "Arial", "Liberation Sans", "sans-serif"]
+FIGURE_FONT_SCALE = 1.20
+FIGURE_SIZE_SCALE = 1.18
+FIGURE_LABEL_REPLACEMENTS = {"GMM-guided SMOTE": "GMM-SMOTE"}
+
+# Keep notebook figures independent of machine-specific serif defaults.
+mpl.rcParams.update({
+    "font.family": "sans-serif",
+    "font.sans-serif": FIGURE_SANS_SERIF,
+    "mathtext.fontset": "dejavusans",
+})
+
+
+def apply_notebook_figure_style(fig):
+    """Apply the shared typography and label alignment used in both notebooks."""
+    if getattr(fig, "_full_page_notebook_style_applied", False):
+        return fig
+
+    width, height = fig.get_size_inches()
+    fig.set_size_inches(width * FIGURE_SIZE_SCALE, height * FIGURE_SIZE_SCALE)
+
+    for ax in fig.axes:
+        tick_text = [tick.get_text() for tick in ax.get_xticklabels()]
+        display_tick_text = tick_text.copy()
+        for index, label in enumerate(display_tick_text):
+            for old_label, new_label in FIGURE_LABEL_REPLACEMENTS.items():
+                display_tick_text[index] = label.replace(old_label, new_label)
+        if display_tick_text != tick_text:
+            ax.set_xticks(ax.get_xticks())
+            ax.set_xticklabels(display_tick_text)
+
+    text_artists = list(fig.findobj(match=mpl.text.Text))
+    for ax in fig.axes:
+        for table in ax.tables:
+            text_artists.extend(cell.get_text() for cell in table.get_celld().values())
+
+    for text_artist in dict.fromkeys(text_artists):
+        text_artist.set_fontfamily("DejaVu Sans")
+        label = text_artist.get_text().strip()
+        for old_label, new_label in FIGURE_LABEL_REPLACEMENTS.items():
+            if old_label in label:
+                label = label.replace(old_label, new_label)
+                text_artist.set_text(label)
+        if any(
+            label == dataset or label.startswith(f"{dataset}:")
+            for dataset in DATASET_ORDER
+        ):
+            text_artist.set_color(FIGURE_TEXT_COLOR)
+        text_artist.set_fontsize(float(text_artist.get_fontsize()) * FIGURE_FONT_SCALE)
+
+    for ax in fig.axes:
+        for tick_label in ax.get_xticklabels():
+            tick_label.set_horizontalalignment("center")
+            if abs(float(tick_label.get_rotation())) > 1e-8:
+                # Align the rotated bounding box below the tick.  Anchoring
+                # rotation at the text center lets the upper half intrude into
+                # the plotting area.
+                tick_label.set_rotation_mode("default")
+                tick_label.set_verticalalignment("top")
+    fig._full_page_notebook_style_applied = True
+    return fig
+
 DATASET_MARKERS = {"HIV": "^", "Breast Cancer": "o", "Diabetes": "s"}
 
 METHOD_ORDER = ["Bootstrap", "Column-wise", "GMM", "CVAE"]

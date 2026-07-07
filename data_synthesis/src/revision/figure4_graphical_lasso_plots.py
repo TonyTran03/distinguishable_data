@@ -36,14 +36,18 @@ METRIC_LABELS = {
 METHOD_PRESERVATION_COLORS = {
     "Bootstrap": "#6A5ACD",
     "Column-wise": "#CC79A7",
+    "SMOTE": "#0072B2",
     "GMM": "#009E73",
+    "GMM-guided SMOTE": "#56B4E9",
     "CVAE": "#D55E00",
 }
 
 METHOD_PRESERVATION_PASTELS = {
     "Bootstrap": "#C7C2F4",
     "Column-wise": "#E8B4D2",
+    "SMOTE": "#9ECAE1",
     "GMM": "#A8DEC9",
+    "GMM-guided SMOTE": "#B9E2F5",
     "CVAE": "#F2B49B",
 }
 
@@ -57,6 +61,7 @@ class Figure4Result:
     structures: dict
     edge_recovery: pd.DataFrame | None = None
     feature_index: pd.DataFrame | None = None
+    regularization_path: pd.DataFrame | None = None
 
 
 def _prepare_glasso_input(X):
@@ -939,9 +944,10 @@ def plot_figure4_edge_status_all_datasets(
 ):
     """Plot categorical Graphical Lasso edge status for every dataset and method.
 
-    Rows are datasets and columns are synthesis methods. Feature order is derived
-    once from each dataset's real partial-correlation structure and then reused
-    across every method in that row, making within-dataset comparisons valid.
+    Each dataset is a two-row block: direct/resampling baselines on the first
+    row and GMM-family/CVAE models on the second. Feature order is derived once
+    from each dataset's real partial-correlation structure and reused across
+    every method in that dataset block.
     """
     dataset_order = list(dataset_order or real_data.keys())
     method_order = list(method_order or synthetic_data[dataset_order[0]].keys())
@@ -961,14 +967,27 @@ def plot_figure4_edge_status_all_datasets(
         method_order=method_order,
     )
 
-    n_rows = len(dataset_order)
-    n_cols = len(comparison_methods)
-    fig, axes = plt.subplots(
-        n_rows,
-        n_cols,
-        figsize=(3.15 * n_cols + 1.2, 3.15 * n_rows + 1.35),
-        squeeze=False,
-        constrained_layout=False,
+    baseline_order = ["Bootstrap", "Column-wise", "SMOTE"]
+    learned_order = ["GMM", "GMM-guided SMOTE", "CVAE"]
+    baseline_methods = [method for method in baseline_order if method in comparison_methods]
+    learned_methods = [method for method in learned_order if method in comparison_methods]
+    assigned_methods = set(baseline_methods + learned_methods)
+    baseline_methods.extend(
+        method for method in comparison_methods if method not in assigned_methods
+    )
+    method_rows = [row for row in (baseline_methods, learned_methods) if row]
+    n_method_rows = len(method_rows)
+    n_cols = max(len(row) for row in method_rows)
+
+    fig = plt.figure(figsize=(8.27, 11.69), facecolor="white")
+    outer = fig.add_gridspec(
+        len(dataset_order),
+        1,
+        left=0.17,
+        right=0.985,
+        top=0.965,
+        bottom=0.090,
+        hspace=0.18,
     )
     fig.patch.set_facecolor("white")
     cmap = ListedColormap([
@@ -980,9 +999,17 @@ def plot_figure4_edge_status_all_datasets(
 
     panel_letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     feature_index_tables = []
-    panel_idx = 0
 
-    for row, dataset in enumerate(dataset_order):
+    panel_idx = 0
+    dataset_axes = []
+
+    for dataset_index, dataset in enumerate(dataset_order):
+        section = outer[dataset_index].subgridspec(
+            n_method_rows,
+            n_cols,
+            wspace=0.10,
+            hspace=0.22,
+        )
         names = list(feature_names[dataset] if isinstance(feature_names, Mapping) else feature_names)
         real = structures[dataset]["real"]
         real_edges = real["edges"]
@@ -996,56 +1023,82 @@ def plot_figure4_edge_status_all_datasets(
         ticks = np.arange(0, n_features, tick_step)
         tick_labels = [str(index + 1) for index in ticks]
 
-        for col, method in enumerate(comparison_methods):
-            ax = axes[row, col]
-            synthetic_edges = structures[dataset]["synthetic"][method]["edges"]
-            status = build_edge_status_matrix(real_edges, synthetic_edges, n_features)
-            ordered_status = status[np.ix_(order, order)]
-            ax.imshow(
-                ordered_status,
-                cmap=cmap,
-                vmin=-0.5,
-                vmax=3.5,
-                interpolation="nearest",
-                aspect="equal",
-            )
+        section_axes = []
+        for method_row, methods_in_row in enumerate(method_rows):
+            row_axes = []
+            for method_col in range(n_cols):
+                ax = fig.add_subplot(section[method_row, method_col])
+                row_axes.append(ax)
+                if method_col >= len(methods_in_row):
+                    ax.axis("off")
+                    continue
 
-            ax.set_xticks(ticks)
-            ax.set_xticklabels(tick_labels, fontsize=7.2)
-            if col == 0:
-                ax.set_yticks(ticks)
-                ax.set_yticklabels(tick_labels, fontsize=7.2)
-                ax.set_ylabel(
-                    dataset,
-                    fontsize=11.2,
-                    weight="semibold",
-                    labelpad=9,
+                method = methods_in_row[method_col]
+                synthetic_edges = structures[dataset]["synthetic"][method]["edges"]
+                status = build_edge_status_matrix(real_edges, synthetic_edges, n_features)
+                ordered_status = status[np.ix_(order, order)]
+                ax.imshow(
+                    ordered_status,
+                    cmap=cmap,
+                    vmin=-0.5,
+                    vmax=3.5,
+                    interpolation="nearest",
+                    aspect="equal",
                 )
-            else:
-                ax.set_yticks([])
-            ax.tick_params(axis="both", which="major", length=2.0, width=0.75, pad=1.5)
 
-            if row == 0:
-                ax.set_title(method, fontsize=12.0, weight="semibold", pad=7)
-            ax.text(
-                0.025,
-                0.975,
-                panel_letters[panel_idx],
-                transform=ax.transAxes,
+                ax.set_xticks(ticks)
+                if method_row == n_method_rows - 1:
+                    ax.set_xticklabels(tick_labels, fontsize=7.2)
+                else:
+                    ax.set_xticklabels([])
+                if method_col == 0:
+                    ax.set_yticks(ticks)
+                    ax.set_yticklabels(tick_labels, fontsize=7.2)
+                else:
+                    ax.set_yticks([])
+                ax.tick_params(axis="both", which="major", length=2.0, width=0.75, pad=1.5)
+
+                ax.set_title(
+                    "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+                    fontsize=10.4,
+                    weight="semibold",
+                    pad=4.5,
+                )
+                ax.text(
+                    -0.10,
+                    1.035,
+                    panel_letters[panel_idx],
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontsize=11.0,
+                    weight="bold",
+                    color="#111111",
+                    clip_on=False,
+                    zorder=5,
+                )
+                panel_idx += 1
+                for spine in ax.spines.values():
+                    spine.set_visible(True)
+                    spine.set_linewidth(0.8)
+                    spine.set_color("#333333")
+            section_axes.append(row_axes)
+
+        visible_axes = [ax for row in section_axes for ax in row if ax.axison]
+        if visible_axes:
+            y_bottom = min(ax.get_position().y0 for ax in visible_axes)
+            y_top = max(ax.get_position().y1 for ax in visible_axes)
+            fig.text(
+                0.018,
+                (y_bottom + y_top) / 2,
+                dataset,
                 ha="left",
-                va="top",
-                fontsize=9.5,
-                weight="bold",
-                color="#111111",
-                bbox=dict(facecolor="white", edgecolor="none", alpha=0.80, pad=1.4),
-                zorder=5,
+                va="center",
+                fontsize=11.2,
+                weight="semibold",
+                color="#222222",
             )
-            panel_idx += 1
-
-            for spine in ax.spines.values():
-                spine.set_visible(True)
-                spine.set_linewidth(0.8)
-                spine.set_color("#333333")
+        dataset_axes.append(section_axes)
 
     legend_handles = [
         Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
@@ -1064,8 +1117,6 @@ def plot_figure4_edge_status_all_datasets(
         handletextpad=0.5,
         columnspacing=1.25,
     )
-    fig.subplots_adjust(left=0.105, right=0.985, top=0.945, bottom=0.105, wspace=0.10, hspace=0.18)
-
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
 
@@ -1077,6 +1128,280 @@ def plot_figure4_edge_status_all_datasets(
         anchor_feature="",
         structures=structures,
         feature_index=feature_index,
+    )
+    empty_group_summary = pd.DataFrame(columns=[
+        "cluster_id",
+        "method",
+        "n_features",
+        "n_features_matching_method",
+        "prominent_features",
+        "feature_indices",
+        "center_x",
+        "center_y",
+    ])
+    result.preserve_group_summary = empty_group_summary.copy()
+    result.lost_group_summary = empty_group_summary.copy()
+    result.synthetic_only_group_summary = empty_group_summary.copy()
+    result.neighborhood_summary = result.preserve_group_summary
+    return result
+
+
+def plot_figure4_hiv_structural_mosaic(
+    real_data,
+    synthetic_data,
+    feature_names,
+    alphas=None,
+    dataset_name="HIV",
+    dataset_order=None,
+    method_order=None,
+    comparison_methods=None,
+    threshold=1e-7,
+    save_path=None,
+):
+    """Combine a 2 x 3 HIV edge-status grid with a full-width solution path."""
+    dataset_order = list(dataset_order or real_data.keys())
+    if dataset_name not in dataset_order:
+        raise ValueError(f"{dataset_name!r} is not present in dataset_order.")
+    method_order = list(method_order or synthetic_data[dataset_name].keys())
+    comparison_methods = list(comparison_methods or method_order)
+    preferred_order = [
+        "Bootstrap",
+        "Column-wise",
+        "SMOTE",
+        "GMM",
+        "GMM-guided SMOTE",
+        "CVAE",
+    ]
+    comparison_methods = [
+        method for method in preferred_order
+        if method in comparison_methods and method in method_order
+    ]
+    if len(comparison_methods) != 6:
+        raise ValueError(
+            "The main structural mosaic requires Bootstrap, Column-wise, GMM, "
+            "SMOTE, GMM-guided SMOTE, and CVAE."
+        )
+
+    structures, metrics = _fit_structures(
+        real_data,
+        synthetic_data,
+        alphas=alphas,
+        threshold=threshold,
+        dataset_order=dataset_order,
+        method_order=method_order,
+    )
+
+    # Reciprocal dimensions finish at 8.27 x 9.7 inches after the shared
+    # notebook style applies its 1.18 size multiplier.
+    fig = plt.figure(figsize=(8.27 / 1.18, 9.7 / 1.18), facecolor="white")
+    grid = fig.add_gridspec(
+        3,
+        3,
+        height_ratios=[1.0, 1.0, 0.78],
+        left=0.085,
+        right=0.985,
+        top=0.965,
+        bottom=0.155,
+        wspace=0.13,
+        hspace=0.30,
+    )
+
+    cmap = ListedColormap([
+        STATUS_COLORS["absent"],
+        STATUS_COLORS["preserved"],
+        STATUS_COLORS["real_only"],
+        STATUS_COLORS["synthetic_only"],
+    ])
+    real = structures[dataset_name]["real"]
+    real_edges = real["edges"]
+    order = get_real_structure_order(real["partial"])
+    names = list(
+        feature_names[dataset_name]
+        if isinstance(feature_names, Mapping)
+        else feature_names
+    )
+    n_features = real["partial"].shape[0]
+    tick_step = 1 if n_features <= 12 else 5 if n_features <= 35 else 10
+    ticks = np.arange(0, n_features, tick_step)
+    tick_labels = [str(index + 1) for index in ticks]
+    panel_letters = list("ABCDEFG")
+    display_names = {"GMM-guided SMOTE": "GMM-SMOTE"}
+
+    for index, method in enumerate(comparison_methods):
+        row, col = divmod(index, 3)
+        ax = fig.add_subplot(grid[row, col])
+        synthetic_edges = structures[dataset_name]["synthetic"][method]["edges"]
+        status = build_edge_status_matrix(real_edges, synthetic_edges, n_features)
+        ordered_status = status[np.ix_(order, order)]
+        ax.imshow(
+            ordered_status,
+            cmap=cmap,
+            vmin=-0.5,
+            vmax=3.5,
+            interpolation="nearest",
+            aspect="equal",
+        )
+        ax.set_xticks(ticks)
+        if row == 1:
+            ax.set_xticklabels(tick_labels, fontsize=7.0)
+        else:
+            ax.set_xticklabels([])
+        if col == 0:
+            ax.set_yticks(ticks)
+            ax.set_yticklabels(tick_labels, fontsize=7.0)
+        else:
+            ax.set_yticks([])
+        ax.tick_params(axis="both", length=2.0, width=0.75, pad=1.5)
+        ax.set_title(
+            display_names.get(method, method),
+            fontsize=10.2,
+            weight="semibold",
+            color=METHOD_PRESERVATION_COLORS.get(method, "#222222"),
+            pad=4.0,
+        )
+        ax.text(
+            -0.10,
+            1.035,
+            panel_letters[index],
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=10.8,
+            weight="bold",
+            color="#111111",
+            clip_on=False,
+        )
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.8)
+            spine.set_color("#333333")
+
+    # Match the heatmap feature numbering in the regularization-path labels.
+    X = np.asarray(real_data[dataset_name], dtype=np.float64)
+    Xs = _prepare_glasso_input(X)
+    emp_cov = Xs.T @ Xs / Xs.shape[0]
+    selected_alpha = float(structures[dataset_name]["alpha"])
+    off_diagonal_cov = emp_cov.copy()
+    np.fill_diagonal(off_diagonal_cov, 0.0)
+    zero_solution_alpha = float(np.max(np.abs(off_diagonal_cov)))
+    alpha_grid = np.geomspace(
+        selected_alpha * 0.1,
+        max(selected_alpha * 2.5, zero_solution_alpha * 1.05),
+        num=40,
+    )
+    edge_i, edge_j = np.triu_indices(Xs.shape[1], k=1)
+    path = np.empty((len(alpha_grid), len(edge_i)), dtype=float)
+    for alpha_index, alpha in enumerate(alpha_grid):
+        if alpha >= zero_solution_alpha:
+            precision = np.diag(1.0 / np.diag(emp_cov))
+        else:
+            mode = "lars" if alpha >= 0.5 * zero_solution_alpha else "cd"
+            _, precision = covariance.graphical_lasso(
+                emp_cov,
+                alpha=float(alpha),
+                mode=mode,
+                max_iter=1000,
+                tol=1e-3,
+            )
+        path[alpha_index] = precision[edge_i, edge_j]
+
+    strengths = np.max(np.abs(path), axis=0)
+    plotted_edges = np.flatnonzero(strengths > 1e-10)
+    plotted_edges = plotted_edges[np.argsort(strengths[plotted_edges])[::-1][:10]]
+    heatmap_number = np.empty(n_features, dtype=int)
+    heatmap_number[order] = np.arange(1, n_features + 1)
+    path_ax = fig.add_subplot(grid[2, :])
+    path_rows = []
+    path_colors = plt.get_cmap("tab10")(np.linspace(0, 1, max(len(plotted_edges), 1)))
+    for line_index, edge_index in enumerate(plotted_edges):
+        i, j = int(edge_i[edge_index]), int(edge_j[edge_index])
+        edge_a, edge_b = int(heatmap_number[i]), int(heatmap_number[j])
+        label = f"Edge ({edge_a}, {edge_b})"
+        path_ax.plot(
+            alpha_grid,
+            path[:, edge_index],
+            color=path_colors[line_index],
+            linewidth=1.45,
+            label=label,
+        )
+        path_rows.extend(
+            {
+                "dataset": dataset_name,
+                "alpha": float(alpha),
+                "selected_alpha": selected_alpha,
+                "feature_a_matrix_index": edge_a,
+                "feature_b_matrix_index": edge_b,
+                "feature_a": names[i],
+                "feature_b": names[j],
+                "precision_coefficient": float(coefficient),
+            }
+            for alpha, coefficient in zip(alpha_grid, path[:, edge_index])
+        )
+    path_ax.axvline(
+        selected_alpha,
+        color="#222222",
+        linestyle="--",
+        linewidth=1.25,
+        label=rf"Analysis $\alpha={selected_alpha:g}$",
+    )
+    path_ax.axhline(0, color="#777777", linewidth=0.75, alpha=0.75)
+    path_ax.set_xscale("log")
+    path_ax.invert_xaxis()
+    path_ax.set_xlabel(r"Regularization parameter $\alpha$ (decreasing $\rightarrow$)", fontsize=8.2)
+    path_ax.set_ylabel("Precision coefficient", fontsize=8.2)
+    path_ax.tick_params(axis="both", labelsize=7.0)
+    path_ax.grid(True, linestyle="--", linewidth=0.65, alpha=0.38)
+    path_ax.text(
+        -0.035,
+        1.035,
+        panel_letters[6],
+        transform=path_ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=10.8,
+        weight="bold",
+        color="#111111",
+        clip_on=False,
+    )
+    path_ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.27),
+        frameon=False,
+        fontsize=6.4,
+        ncol=4,
+        handlelength=1.8,
+        columnspacing=0.9,
+    )
+
+    legend_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="center",
+        bbox_to_anchor=(0.5, 0.365),
+        ncol=4,
+        frameon=False,
+        fontsize=8.2,
+        handlelength=1.4,
+        handletextpad=0.45,
+        columnspacing=1.0,
+    )
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
+
+    feature_index = make_feature_index_table(names, order).assign(dataset=dataset_name)
+    result = Figure4Result(
+        fig=fig,
+        metrics=metrics,
+        anchor=-1,
+        anchor_feature="",
+        structures=structures,
+        feature_index=feature_index,
+        regularization_path=pd.DataFrame(path_rows),
     )
     empty_group_summary = pd.DataFrame(columns=[
         "cluster_id",

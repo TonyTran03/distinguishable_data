@@ -10,19 +10,19 @@ from src.revision.stats import one_run_origin_auc
 
 
 def _circle_marker_box(facecolor, edgecolor="none", alpha=1.0):
-    box = DrawingArea(13, 10, 0, 0)
-    marker = Circle((5.5, 5), 2.6, facecolor=facecolor, edgecolor=edgecolor, linewidth=0.75, alpha=alpha)
+    box = DrawingArea(17, 13, 0, 0)
+    marker = Circle((7, 6.5), 3.5, facecolor=facecolor, edgecolor=edgecolor, linewidth=0.9, alpha=alpha)
     box.add_artist(marker)
     return box
 
 
 def _add_pca_legend(ax, ds, method, syn_color):
-    text_props = {"fontsize": 7.2}
+    text_props = {"fontsize": 10.0, "fontfamily": "DejaVu Sans", "fontweight": "semibold"}
     real_row = HPacker(
         children=[
             _circle_marker_box("none", edgecolor="#8A8A8A", alpha=0.9),
             TextArea("Real data ", textprops={**text_props, "color": "black"}),
-            TextArea(f"({ds})", textprops={**text_props, "color": DATASET_COLORS[ds]}),
+            TextArea(f"({ds})", textprops={**text_props, "color": FIGURE_TEXT_COLOR}),
         ],
         align="center",
         pad=0,
@@ -41,15 +41,15 @@ def _add_pca_legend(ax, ds, method, syn_color):
     anchored = AnchoredOffsetbox(
         loc="upper left",
         child=legend_box,
-        pad=0.25,
-        borderpad=0.25,
+        pad=0.32,
+        borderpad=0.32,
         frameon=True,
         bbox_to_anchor=(0.025, 0.975),
         bbox_transform=ax.transAxes,
     )
     anchored.patch.set_facecolor("white")
     anchored.patch.set_edgecolor("#BDBDBD")
-    anchored.patch.set_alpha(0.92)
+    anchored.patch.set_alpha(0.88)
     ax.add_artist(anchored)
 
 def plot_figure2_cvae_pca(datasets, seed=SEED, cvae_epochs=CVAE_EPOCHS):
@@ -90,7 +90,8 @@ def plot_figure2_cvae_pca(datasets, seed=SEED, cvae_epochs=CVAE_EPOCHS):
         ax.text(0.045, 0.055, f"n = {len(data['y'])}, p = {X_real.shape[1]}", transform=ax.transAxes,
                 color=DATASET_COLORS[ds], fontsize=9.0, weight="bold", ha="left", va="bottom")
         ax.legend(loc="upper left", frameon=True, facecolor="white", edgecolor="#BDBDBD",
-                  framealpha=0.92, fontsize=7.8, handlelength=1.2, borderpad=0.35,
+                  framealpha=0.88, prop={"size": 9.5, "weight": "semibold", "family": "DejaVu Sans"},
+                  handlelength=1.4, markerscale=1.25, borderpad=0.45,
                   labelspacing=0.25, handletextpad=0.35)
         ax.tick_params(axis="both", colors="black", direction="out", width=1.2, length=4, labelsize=8.8)
         ax.grid(False)

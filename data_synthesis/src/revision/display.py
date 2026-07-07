@@ -6,6 +6,7 @@ def display_figure_once(fig):
     """Display a Matplotlib figure in notebooks without the inline backend echo."""
     from IPython.display import display
 
+    apply_notebook_figure_style(fig)
     display(fig)
     plt.close(fig)
 

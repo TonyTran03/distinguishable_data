@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -12,12 +13,16 @@ from matplotlib.lines import Line2D
 
 from src.revision.common import (
     Config,
+    CACHE_DIR,
     CVAE_EPOCHS,
+    MAIN_CVAE_LATENT_PRIOR,
+    MAIN_CVAE_X_TRANSFORM,
     DATASET_COLORS,
     DATASET_ORDER,
     METHOD_COLORS,
     METHOD_ORDER,
     METHOD_PASTELS,
+    RUN_MODE,
     SEED,
     clean_axis,
     sample_bootstrap,
@@ -149,6 +154,13 @@ def get_sample_size_auc(
     cvae_epochs=CVAE_EPOCHS,
 ):
     cached = None if force else _read_cache("sample_size_auc")
+    if cached is None and not force:
+        # Backward-compatible read for the cache name used before CVAE
+        # preprocessing/prior choices were added to cache filenames.
+        legacy_path = CACHE_DIR / f"sample_size_auc_{RUN_MODE}.pkl"
+        if legacy_path.exists():
+            with legacy_path.open("rb") as handle:
+                cached = pickle.load(handle)
     if cached is not None:
         requested = {round(float(frac), 8) for frac in fractions}
         cached_fractions = {round(float(frac), 8) for frac in cached["fraction"].dropna().unique()}

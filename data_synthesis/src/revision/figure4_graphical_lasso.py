@@ -224,7 +224,7 @@ def plot_figure4_edge_status(dataset_name="HIV", threshold=1e-7, save_path=None)
 
 
 def plot_figure4_edge_status_all(threshold=1e-7, save_path=None):
-    """Return the main-text 3 x 4 edge-status matrix across all datasets."""
+    """Return grouped two-row edge-status blocks across all datasets."""
     real_data, synthetic_data, feature_name_map = _get_figure4_precision_inputs(
         seed=SEED, cvae_epochs=CVAE_EPOCHS
     )
