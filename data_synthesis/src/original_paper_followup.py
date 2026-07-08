@@ -981,7 +981,7 @@ def plot_glasso_regularization_paths(
         ax.set_xscale("log")
         ax.invert_xaxis()
         ax.set_title(dataset, weight="bold")
-        ax.set_xlabel(r"Regularization parameter $\alpha$ (decreasing $\rightarrow$)")
+        ax.set_xlabel(r"Regularization parameter $\alpha$")
         ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.4)
         ax.legend(
             loc="upper center",
@@ -1151,23 +1151,34 @@ def plot_reverse_ablation(table):
                 markersize=3,
                 label=method,
             )
+            if "auc_sd" in values:
+                lower = np.clip(values["auc_mean"] - values["auc_sd"], 0.0, 1.0)
+                upper = np.clip(values["auc_mean"] + values["auc_sd"], 0.0, 1.0)
+                ax.fill_between(
+                    values["percent_removed"],
+                    lower,
+                    upper,
+                    color=METHOD_COLORS[method],
+                    alpha=0.13,
+                    linewidth=0,
+                )
         ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1)
         ax.set_title(dataset, color=DATASET_COLORS[dataset], weight="bold")
-        ax.set_xlabel("RF-ranked features removed (%)")
+        ax.set_xlabel("Features removed (%)")
         ax.set_ylabel("Origin AUC")
     axes[-1].legend(frameon=False, fontsize=7, bbox_to_anchor=(1.02, 1))
     fig.tight_layout()
     return apply_notebook_figure_style(fig)
 
 
-def plot_hiv_pca_ablation_glasso_composite(
+def plot_hiv_experimental_1(
     datasets,
     cohorts,
     ablation_table,
     edge_status,
     dataset="HIV",
 ):
-    """Create the A4 main figure: PCA, ablation, edge matrices, and path."""
+    """Experimental 1: PCA, ablation, edge matrices, and solution path."""
     methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
     structures = edge_status.structures[dataset]
     path_table = edge_status.regularization_path
@@ -1279,8 +1290,20 @@ def plot_hiv_pca_ablation_glasso_composite(
             linewidth=1.05,
             label="GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
         )
+        if "auc_sd" in values:
+            lower = np.clip(values["auc_mean"] - values["auc_sd"], 0.0, 1.0)
+            upper = np.clip(values["auc_mean"] + values["auc_sd"], 0.0, 1.0)
+            ablation_ax.fill_between(
+                values["percent_removed"],
+                lower,
+                upper,
+                color=METHOD_COLORS[method],
+                alpha=0.14,
+                linewidth=0,
+                zorder=0,
+            )
     ablation_ax.axhline(0.5, color="#777777", linestyle="--", linewidth=0.85)
-    ablation_ax.set_xlabel("RF-ranked features removed (%)", fontsize=7.0)
+    ablation_ax.set_xlabel("Features removed (%)", fontsize=7.0)
     ablation_ax.set_ylabel("AUC", fontsize=7.0)
     ablation_ax.tick_params(axis="both", labelsize=6.2)
     ablation_ax.grid(axis="y", color="#D8D8D8", linewidth=0.6, alpha=0.65)
@@ -1405,7 +1428,7 @@ def plot_hiv_pca_ablation_glasso_composite(
     path_ax.axhline(0, color="#777777", linewidth=0.7, alpha=0.75)
     path_ax.set_xscale("log")
     path_ax.invert_xaxis()
-    path_ax.set_xlabel(r"Regularization parameter $\alpha$ (decreasing $\rightarrow$)", fontsize=7.5)
+    path_ax.set_xlabel(r"Regularization parameter $\alpha$", fontsize=7.5)
     path_ax.set_ylabel("Precision coefficient", fontsize=7.5)
     path_ax.tick_params(axis="both", labelsize=6.4)
     path_ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.38)
@@ -1430,6 +1453,182 @@ def plot_hiv_pca_ablation_glasso_composite(
         columnspacing=0.8,
     )
     return apply_notebook_figure_style(fig)
+
+
+def plot_hiv_experimental_2(
+    datasets,
+    cohorts,
+    ablation_table,
+    noise_table,
+    dataset="HIV",
+):
+    """Experimental 2: wide PCA above ablation and noise sensitivity."""
+    methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
+    fig = plt.figure(figsize=(8.27 / 1.18, 8.35 / 1.18), facecolor="white")
+    outer = fig.add_gridspec(
+        2,
+        1,
+        height_ratios=[1.16, 0.88],
+        left=0.075,
+        right=0.985,
+        top=0.965,
+        bottom=0.090,
+        hspace=0.25,
+    )
+
+    pca_grid = outer[0].subgridspec(2, 3, wspace=0.24, hspace=0.42)
+    X_real = np.asarray(datasets[dataset]["X"])
+    pca_axes = []
+    for index, method in enumerate(methods):
+        ax = fig.add_subplot(pca_grid[index // 3, index % 3])
+        pca_axes.append(ax)
+        X_syn = np.asarray(cohorts[dataset][method][0])
+        Xr, Xs = standardize_pair(X_real, X_syn)
+        pca = PCA(n_components=2, random_state=42).fit(Xr)
+        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        ax.scatter(
+            Zr[:, 0], Zr[:, 1], s=5.0, facecolors="none",
+            edgecolors="#777777", linewidths=0.55, alpha=0.50, label="Real",
+        )
+        ax.scatter(
+            Zs[:, 0], Zs[:, 1], s=5.0, color=METHOD_COLORS[method],
+            edgecolors="none", alpha=0.60, label=method,
+        )
+        add_confidence_ellipse(ax, Zr, "#777777", linewidth=1.15)
+        add_confidence_ellipse(ax, Zs, METHOD_COLORS[method], linewidth=1.35)
+        ax.set_title(
+            "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+            color=METHOD_COLORS[method], fontsize=7.5, weight="bold", pad=2.5,
+        )
+        ax.set_xlabel(
+            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)",
+            fontsize=5.8, labelpad=1.0,
+        )
+        ax.set_ylabel(
+            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)",
+            fontsize=5.8, labelpad=1.0,
+        )
+        ax.tick_params(axis="both", labelsize=5.2, length=2.0, pad=1.0)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+        ax.legend(
+            loc="upper right", frameon=False, fontsize=5.2,
+            markerscale=1.15, handletextpad=0.30, borderaxespad=0.25,
+        )
+        ax.grid(False)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.65)
+            spine.set_color("#444444")
+    pca_axes[0].text(
+        -0.18, 1.02, "A", transform=pca_axes[0].transAxes,
+        ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
+    )
+
+    lower = outer[1].subgridspec(1, 2, wspace=0.24)
+    ablation_ax = fig.add_subplot(lower[0, 0])
+    noise_ax = fig.add_subplot(lower[0, 1])
+
+    for method in methods:
+        color = METHOD_COLORS[method]
+        label = "GMM-SMOTE" if method == "GMM-guided SMOTE" else method
+
+        ablation_values = ablation_table.query(
+            "dataset == @dataset and method == @method"
+        ).sort_values("percent_removed")
+        ablation_ax.plot(
+            ablation_values["percent_removed"],
+            ablation_values["auc_mean"],
+            color=color,
+            marker="o",
+            markersize=2.4,
+            linewidth=1.1,
+            label=label,
+        )
+        if "auc_sd" in ablation_values:
+            lower_auc = np.clip(
+                ablation_values["auc_mean"] - ablation_values["auc_sd"], 0.0, 1.0
+            )
+            upper_auc = np.clip(
+                ablation_values["auc_mean"] + ablation_values["auc_sd"], 0.0, 1.0
+            )
+            ablation_ax.fill_between(
+                ablation_values["percent_removed"],
+                lower_auc,
+                upper_auc,
+                color=color,
+                alpha=0.14,
+                linewidth=0,
+            )
+
+        noise_values = noise_table.query(
+            "dataset == @dataset and method == @method"
+        ).sort_values("sigma")
+        noise_ax.plot(
+            noise_values["sigma"],
+            noise_values["sep_mean"],
+            color=color,
+            marker="o",
+            markersize=2.4,
+            linewidth=1.1,
+            label=label,
+        )
+        if "sep_sd" in noise_values:
+            lower_auc = np.clip(
+                noise_values["sep_mean"] - noise_values["sep_sd"], 0.0, 1.0
+            )
+            upper_auc = np.clip(
+                noise_values["sep_mean"] + noise_values["sep_sd"], 0.0, 1.0
+            )
+            noise_ax.fill_between(
+                noise_values["sigma"],
+                lower_auc,
+                upper_auc,
+                color=color,
+                alpha=0.14,
+                linewidth=0,
+            )
+
+    for ax, panel in ((ablation_ax, "B"), (noise_ax, "C")):
+        ax.axhline(0.5, color="#777777", linestyle="--", linewidth=0.85)
+        ax.set_ylabel("AUC", fontsize=7.2)
+        ax.tick_params(axis="both", labelsize=6.4)
+        ax.grid(axis="y", color="#D8D8D8", linewidth=0.6, alpha=0.65)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.text(
+            -0.14, 1.035, panel, transform=ax.transAxes,
+            ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
+        )
+    ablation_ax.set_xlabel("Features removed (%)", fontsize=7.2)
+    noise_ax.set_xlabel(r"Noise level $\sigma$", fontsize=7.2)
+    noise_ax.legend(
+        loc="best", frameon=False, fontsize=5.8, ncol=2,
+        columnspacing=0.8, handlelength=1.5,
+    )
+    return apply_notebook_figure_style(fig)
+
+
+def format_hiv_structural_cd(edge_status):
+    """Relabel the standalone structural figure as matrix panel C above path D."""
+    fig = edge_status.fig
+    axes = fig.axes
+    if len(axes) < 7:
+        raise ValueError("Expected six matrix axes followed by one path axis.")
+    for ax in axes:
+        for text_artist in list(ax.texts):
+            if text_artist.get_text() in set("ABCDEFG"):
+                text_artist.remove()
+    axes[0].text(
+        -0.10, 1.035, "C", transform=axes[0].transAxes,
+        ha="left", va="bottom", fontsize=10.8, weight="bold",
+        color="#111111", clip_on=False,
+    )
+    axes[-1].text(
+        -0.035, 1.035, "D", transform=axes[-1].transAxes,
+        ha="left", va="bottom", fontsize=10.8, weight="bold",
+        color="#111111", clip_on=False,
+    )
+    return fig
 
 
 def compute_sample_size_sensitivity(

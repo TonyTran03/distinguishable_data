@@ -1346,7 +1346,7 @@ def plot_figure4_hiv_structural_mosaic(
     path_ax.axhline(0, color="#777777", linewidth=0.75, alpha=0.75)
     path_ax.set_xscale("log")
     path_ax.invert_xaxis()
-    path_ax.set_xlabel(r"Regularization parameter $\alpha$ (decreasing $\rightarrow$)", fontsize=8.2)
+    path_ax.set_xlabel(r"Regularization parameter $\alpha$", fontsize=8.2)
     path_ax.set_ylabel("Precision coefficient", fontsize=8.2)
     path_ax.tick_params(axis="both", labelsize=7.0)
     path_ax.grid(True, linestyle="--", linewidth=0.65, alpha=0.38)
