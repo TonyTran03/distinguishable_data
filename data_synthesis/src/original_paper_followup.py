@@ -393,11 +393,12 @@ def plot_figure1_fidelity_grid(
     auc_runs,
     feature_kld,
     marginal_tests,
+    tstr_runs,
     dataset_order=None,
     method_order=None,
     jitter_seed=42,
 ):
-    """Plot AUC, feature KLD, and feature KS distributions in a 3 x 3 grid."""
+    """Plot AUC, feature KLD, and TSTR F1 distributions in a 3 x 3 grid."""
     dataset_order = list(dataset_order or dict.fromkeys(auc_runs["dataset"]))
     method_order = [
         method
@@ -410,7 +411,7 @@ def plot_figure1_fidelity_grid(
     row_specs = [
         (auc_runs, "separability_auc", "AUC"),
         (feature_kld, "kld", "KLD"),
-        (marginal_tests, "ks_statistic", "KS score"),
+        (tstr_runs, "tstr_f1", "TSTR F1"),
     ]
     # Portrait proportions allow the complete 3 x 3 figure and its caption to
     # occupy an A4 journal page when included at \textwidth.
@@ -483,7 +484,7 @@ def plot_figure1_fidelity_grid(
             elif row == 1:
                 ax.set_ylim(bottom=0.0)
             elif row == 2:
-                ax.set_ylim(0.0, 0.65)
+                ax.set_ylim(0.0, 1.02)
 
             if col == 0:
                 ax.set_ylabel(row_label, fontsize=11, weight="semibold")
@@ -519,7 +520,112 @@ def plot_figure1_fidelity_grid(
     return apply_notebook_figure_style(fig)
 
 
-def compute_metric_table(datasets, cohorts, auc_runs, tstr_repeats=3, seed=42):
+def plot_ks_supplement(
+    marginal_tests,
+    dataset_order=None,
+    method_order=None,
+    jitter_seed=42,
+):
+    """Preserve the former Figure 1 KS row as a supplementary figure."""
+    dataset_order = list(dataset_order or dict.fromkeys(marginal_tests["dataset"]))
+    method_order = [
+        method for method in (method_order or METHOD_ORDER)
+        if method in set(marginal_tests["method"])
+    ]
+    fig, axes = plt.subplots(
+        1,
+        len(dataset_order),
+        figsize=(9.1, 3.65),
+        sharey=True,
+        squeeze=False,
+    )
+
+    def consistent_jitter(count, width=0.105):
+        if count <= 1:
+            return np.zeros(count, dtype=float)
+        offsets = np.linspace(-width, width, count)
+        return offsets[
+            np.random.default_rng(jitter_seed + count).permutation(count)
+        ]
+
+    for col, dataset in enumerate(dataset_order):
+        ax = axes[0, col]
+        subset = marginal_tests[marginal_tests["dataset"] == dataset]
+        values = [
+            subset.loc[subset["method"] == method, "ks_statistic"]
+            .dropna()
+            .to_numpy(dtype=float)
+            for method in method_order
+        ]
+        boxes = ax.boxplot(
+            values,
+            positions=np.arange(len(method_order)),
+            widths=0.62,
+            patch_artist=True,
+            showmeans=True,
+            showfliers=False,
+            meanprops={
+                "marker": "D",
+                "markerfacecolor": "white",
+                "markeredgecolor": "#333333",
+                "markeredgewidth": 0.8,
+                "markersize": 4.2,
+            },
+            medianprops={"color": "#111111", "linewidth": 1.35},
+            whiskerprops={"color": "#666666", "linewidth": 1.0},
+            capprops={"color": "#666666", "linewidth": 1.0},
+        )
+        for box, method in zip(boxes["boxes"], method_order):
+            box.set_facecolor(METHOD_COLORS[method])
+            box.set_edgecolor(METHOD_COLORS[method])
+            box.set_alpha(0.58)
+            box.set_linewidth(1.25)
+        for position, method_values, method in zip(
+            np.arange(len(method_order)), values, method_order
+        ):
+            ax.scatter(
+                position + consistent_jitter(len(method_values)),
+                method_values,
+                s=11,
+                color=METHOD_COLORS[method],
+                edgecolors="white",
+                linewidths=0.22,
+                alpha=0.38,
+                zorder=3,
+            )
+        ax.set_ylim(0.0, 0.65)
+        ax.set_title(dataset, fontsize=11.0, weight="semibold", pad=7)
+        ax.set_xticks(np.arange(len(method_order)))
+        ax.set_xticklabels(method_order, rotation=45, ha="center", fontsize=7.6)
+        ax.set_ylabel("KS score" if col == 0 else "", fontsize=10.0, weight="semibold")
+        ax.grid(axis="y", color="#D9D9D9", linewidth=0.75, alpha=0.55)
+        ax.tick_params(direction="out", width=0.8)
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.0)
+            spine.set_color("#333333")
+        ax.text(
+            -0.10,
+            1.035,
+            chr(ord("A") + col),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12.0,
+            weight="bold",
+            clip_on=False,
+        )
+    fig.subplots_adjust(
+        left=0.075,
+        right=0.99,
+        top=0.90,
+        bottom=0.26,
+        wspace=0.16,
+    )
+    return apply_notebook_figure_style(fig)
+
+
+def compute_tstr_runs(datasets, cohorts, repeats=3, seed=42):
+    """Return repeat-level TSTR and TRTR F1 values for plotting and summaries."""
     rows = []
     for dataset, method_data in cohorts.items():
         X_real = np.asarray(datasets[dataset]["X"])
@@ -531,8 +637,49 @@ def compute_metric_table(datasets, cohorts, auc_runs, tstr_repeats=3, seed=42):
                 X_syn,
                 y_syn,
                 seed=seed,
-                repeats=tstr_repeats,
+                repeats=repeats,
             )
+            rows.extend(
+                {
+                    "dataset": dataset,
+                    "method": method,
+                    "repeat": repeat,
+                    "tstr_f1": float(tstr_value),
+                    "trtr_f1": float(trtr_value),
+                }
+                for repeat, (tstr_value, trtr_value) in enumerate(zip(tstr, trtr))
+            )
+    return pd.DataFrame(rows)
+
+
+def compute_metric_table(
+    datasets,
+    cohorts,
+    auc_runs,
+    tstr_repeats=3,
+    seed=42,
+    tstr_runs=None,
+):
+    rows = []
+    for dataset, method_data in cohorts.items():
+        X_real = np.asarray(datasets[dataset]["X"])
+        y_real = np.asarray(datasets[dataset]["y"], dtype=int)
+        for method, (X_syn, y_syn) in method_data.items():
+            if tstr_runs is None:
+                tstr, trtr = tstr_values(
+                    X_real,
+                    y_real,
+                    X_syn,
+                    y_syn,
+                    seed=seed,
+                    repeats=tstr_repeats,
+                )
+            else:
+                repeat_values = tstr_runs.query(
+                    "dataset == @dataset and method == @method"
+                ).sort_values("repeat")
+                tstr = repeat_values["tstr_f1"].to_numpy(dtype=float)
+                trtr = repeat_values["trtr_f1"].to_numpy(dtype=float)
             auc = auc_runs.query(
                 "dataset == @dataset and method == @method"
             )["separability_auc"].to_numpy()
