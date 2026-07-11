@@ -398,7 +398,7 @@ def plot_figure1_fidelity_grid(
     method_order=None,
     jitter_seed=42,
 ):
-    """Plot AUC, feature KLD, and TSTR F1 distributions in a 3 x 3 grid."""
+    """Plot AUC, feature KLD, and utility-gap distributions in a 3 x 3 grid."""
     dataset_order = list(dataset_order or dict.fromkeys(auc_runs["dataset"]))
     method_order = [
         method
@@ -407,11 +407,15 @@ def plot_figure1_fidelity_grid(
     ]
     if len(dataset_order) != 3:
         raise ValueError("Figure 1 requires exactly three datasets")
+    if "utility_gap_abs" not in tstr_runs.columns:
+        tstr_runs = tstr_runs.assign(
+            utility_gap_abs=(tstr_runs["trtr_f1"] - tstr_runs["tstr_f1"]).abs()
+        )
 
     row_specs = [
         (auc_runs, "separability_auc", "AUC"),
         (feature_kld, "kld", "KLD"),
-        (tstr_runs, "tstr_f1", "TSTR F1"),
+        (tstr_runs, "utility_gap_abs", "Utility gap"),
     ]
     # Portrait proportions allow the complete 3 x 3 figure and its caption to
     # occupy an A4 journal page when included at \textwidth.
@@ -484,7 +488,7 @@ def plot_figure1_fidelity_grid(
             elif row == 1:
                 ax.set_ylim(bottom=0.0)
             elif row == 2:
-                ax.set_ylim(0.0, 1.02)
+                ax.set_ylim(0.0, 0.40)
 
             if col == 0:
                 ax.set_ylabel(row_label, fontsize=11, weight="semibold")
@@ -646,6 +650,7 @@ def compute_tstr_runs(datasets, cohorts, repeats=3, seed=42):
                     "repeat": repeat,
                     "tstr_f1": float(tstr_value),
                     "trtr_f1": float(trtr_value),
+                    "utility_gap_abs": float(abs(trtr_value - tstr_value)),
                 }
                 for repeat, (tstr_value, trtr_value) in enumerate(zip(tstr, trtr))
             )
@@ -1318,14 +1323,14 @@ def plot_reverse_ablation(table):
     return apply_notebook_figure_style(fig)
 
 
-def plot_hiv_experimental_1(
+def _plot_hiv_experimental_1_with_path(
     datasets,
     cohorts,
     ablation_table,
     edge_status,
     dataset="HIV",
 ):
-    """Experimental 1: PCA, ablation, edge matrices, and solution path."""
+    """Legacy Experimental 1 layout retained for reproducibility."""
     methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
     structures = edge_status.structures[dataset]
     path_table = edge_status.regularization_path
@@ -1599,6 +1604,217 @@ def plot_hiv_experimental_1(
         handlelength=1.7,
         columnspacing=0.8,
     )
+    return apply_notebook_figure_style(fig)
+
+
+def plot_hiv_experimental_1(
+    datasets,
+    cohorts,
+    ablation_table,
+    edge_status,
+    dataset="HIV",
+):
+    """Experimental 1: wide edge matrices above ablation and PCA."""
+    methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
+    structures = edge_status.structures[dataset]
+    fig = plt.figure(figsize=(8.27 / 1.18, 8.85 / 1.18), facecolor="white")
+    outer = fig.add_gridspec(
+        2,
+        1,
+        height_ratios=[1.12, 0.88],
+        left=0.075,
+        right=0.985,
+        top=0.965,
+        bottom=0.075,
+        hspace=0.27,
+    )
+
+    # A: the structural result receives the full figure width.
+    matrix_grid = outer[0].subgridspec(2, 3, wspace=0.13, hspace=0.23)
+    real = structures["real"]
+    order = get_real_structure_order(real["partial"])
+    n_features = real["partial"].shape[0]
+    ticks = np.arange(0, n_features, 10 if n_features <= 70 else 20)
+    tick_labels = [str(value + 1) for value in ticks]
+    status_cmap = ListedColormap([
+        STATUS_COLORS["absent"],
+        STATUS_COLORS["preserved"],
+        STATUS_COLORS["real_only"],
+        STATUS_COLORS["synthetic_only"],
+    ])
+    matrix_axes = []
+    for index, method in enumerate(methods):
+        row, col = divmod(index, 3)
+        ax = fig.add_subplot(matrix_grid[row, col])
+        matrix_axes.append(ax)
+        syn_edges = structures["synthetic"][method]["edges"]
+        status = build_edge_status_matrix(real["edges"], syn_edges, n_features)
+        ax.imshow(
+            status[np.ix_(order, order)],
+            cmap=status_cmap,
+            vmin=-0.5,
+            vmax=3.5,
+            interpolation="nearest",
+            aspect="equal",
+        )
+        ax.set_title(
+            "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+            color=METHOD_COLORS[method],
+            fontsize=7.6,
+            weight="bold",
+            pad=2.5,
+        )
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(tick_labels if row == 1 else [], fontsize=5.0)
+        ax.set_yticklabels(tick_labels if col == 0 else [], fontsize=5.0)
+        ax.tick_params(axis="both", length=1.7, width=0.6, pad=0.8)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.65)
+            spine.set_color("#444444")
+    matrix_axes[0].text(
+        -0.13, 1.08, "A", transform=matrix_axes[0].transAxes,
+        ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
+    )
+    status_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent"),
+    ]
+    fig.legend(
+        handles=status_handles,
+        loc="center",
+        bbox_to_anchor=(0.5, 0.485),
+        ncol=4,
+        frameon=False,
+        fontsize=6.0,
+        handlelength=1.25,
+        handletextpad=0.35,
+        columnspacing=0.75,
+    )
+
+    lower = outer[1].subgridspec(1, 2, width_ratios=[0.38, 0.62], wspace=0.18)
+
+    # B: reverse ablation.
+    ablation_ax = fig.add_subplot(lower[0, 0])
+    for method in methods:
+        values = ablation_table.query(
+            "dataset == @dataset and method == @method"
+        ).sort_values("percent_removed")
+        color = METHOD_COLORS[method]
+        ablation_ax.plot(
+            values["percent_removed"], values["auc_mean"],
+            color=color, marker="o", markersize=2.3, linewidth=1.05,
+            label="GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+        )
+        if "auc_sd" in values:
+            lower_auc = np.clip(values["auc_mean"] - values["auc_sd"], 0.0, 1.0)
+            upper_auc = np.clip(values["auc_mean"] + values["auc_sd"], 0.0, 1.0)
+            ablation_ax.fill_between(
+                values["percent_removed"], lower_auc, upper_auc,
+                color=color, alpha=0.14, linewidth=0,
+            )
+    ablation_ax.axhline(0.5, color="#777777", linestyle="--", linewidth=0.85)
+    ablation_ax.set_xlabel("Features removed (%)", fontsize=7.0)
+    ablation_ax.set_ylabel("AUC", fontsize=7.0)
+    ablation_ax.tick_params(axis="both", labelsize=6.2)
+    ablation_ax.grid(axis="y", color="#D8D8D8", linewidth=0.6, alpha=0.65)
+    ablation_ax.legend(
+        loc="best", frameon=False, fontsize=5.4, ncol=2,
+        columnspacing=0.7, handlelength=1.4,
+    )
+    ablation_ax.spines["top"].set_visible(False)
+    ablation_ax.spines["right"].set_visible(False)
+    ablation_ax.text(
+        -0.15, 1.035, "B", transform=ablation_ax.transAxes,
+        ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
+    )
+
+    # C: compact 2 x 3 PCA comparison.
+    pca_grid = lower[0, 1].subgridspec(2, 3, wspace=0.16, hspace=0.28)
+    X_real = np.asarray(datasets[dataset]["X"])
+    pca_axes = []
+    for index, method in enumerate(methods):
+        row, col = divmod(index, 3)
+        ax = fig.add_subplot(pca_grid[row, col])
+        pca_axes.append(ax)
+        X_syn = np.asarray(cohorts[dataset][method][0])
+        Xr, Xs = standardize_pair(X_real, X_syn)
+        pca = PCA(n_components=2, random_state=42).fit(Xr)
+        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        ax.scatter(
+            Zr[:, 0], Zr[:, 1], s=3.2, facecolors="none",
+            edgecolors="#777777", linewidths=0.4, alpha=0.45, label="Real",
+        )
+        ax.scatter(
+            Zs[:, 0], Zs[:, 1], s=3.2, color=METHOD_COLORS[method],
+            edgecolors="none", alpha=0.58, label=method,
+        )
+        add_confidence_ellipse(ax, Zr, "#777777", linewidth=0.8)
+        add_confidence_ellipse(ax, Zs, METHOD_COLORS[method], linewidth=0.95)
+        ax.set_title(
+            "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+            color=METHOD_COLORS[method], fontsize=5.8, weight="bold", pad=1.5,
+        )
+        ax.set_xlabel(
+            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)" if row == 1 else "",
+            fontsize=4.2, labelpad=0.6,
+        )
+        ax.set_ylabel(
+            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)" if col == 0 else "",
+            fontsize=4.2, labelpad=0.6,
+        )
+        ax.tick_params(axis="both", labelsize=3.9, length=1.4, pad=0.5)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=3))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
+        ax.legend(
+            loc="upper right", frameon=False, fontsize=3.8,
+            markerscale=1.1, handletextpad=0.2, borderaxespad=0.15,
+        )
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.55)
+            spine.set_color("#444444")
+    pca_axes[0].text(
+        -0.16, 1.12, "C", transform=pca_axes[0].transAxes,
+        ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
+    )
+    return apply_notebook_figure_style(fig)
+
+
+def plot_glasso_path_supplement(edge_status):
+    """Plot the HIV Graphical Lasso regularization path once for supplement."""
+    path_table = edge_status.regularization_path
+    if path_table is None or path_table.empty:
+        raise ValueError("edge_status must contain a regularization path.")
+    fig, ax = plt.subplots(figsize=(8.27 / 1.18, 3.85 / 1.18))
+    edge_columns = ["feature_a_matrix_index", "feature_b_matrix_index"]
+    grouped_paths = list(path_table.groupby(edge_columns, sort=False))
+    colors = plt.get_cmap("tab10")(np.linspace(0, 1, len(grouped_paths)))
+    for color, ((edge_a, edge_b), values) in zip(colors, grouped_paths):
+        values = values.sort_values("alpha")
+        ax.plot(
+            values["alpha"], values["precision_coefficient"],
+            color=color, linewidth=1.35,
+            label=f"Edge ({int(edge_a)}, {int(edge_b)})",
+        )
+    selected_alpha = float(path_table["selected_alpha"].iloc[0])
+    ax.axvline(
+        selected_alpha, color="#222222", linestyle="--", linewidth=1.15,
+        label=rf"Analysis $\alpha={selected_alpha:g}$",
+    )
+    ax.axhline(0, color="#777777", linewidth=0.7, alpha=0.75)
+    ax.set_xscale("log")
+    ax.invert_xaxis()
+    ax.set_xlabel(r"Regularization parameter $\alpha$", fontsize=8.0)
+    ax.set_ylabel("Precision coefficient", fontsize=8.0)
+    ax.tick_params(axis="both", labelsize=6.8)
+    ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.38)
+    ax.legend(
+        loc="upper center", bbox_to_anchor=(0.5, -0.27), frameon=False,
+        fontsize=5.8, ncol=4, handlelength=1.7, columnspacing=0.8,
+    )
+    fig.subplots_adjust(left=0.10, right=0.985, top=0.95, bottom=0.31)
     return apply_notebook_figure_style(fig)
 
 
