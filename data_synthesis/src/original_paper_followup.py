@@ -489,6 +489,8 @@ def plot_figure1_fidelity_grid(
                 ax.set_ylim(bottom=0.0)
             elif row == 2:
                 ax.set_ylim(0.0, 0.40)
+                ax.set_yticks(np.arange(0.0, 0.401, 0.10))
+                ax.tick_params(axis="y", labelleft=col == 0)
 
             if col == 0:
                 ax.set_ylabel(row_label, fontsize=11, weight="semibold")
@@ -1617,20 +1619,20 @@ def plot_hiv_experimental_1(
     """Experimental 1: wide edge matrices above ablation and PCA."""
     methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
     structures = edge_status.structures[dataset]
-    fig = plt.figure(figsize=(8.27 / 1.18, 8.85 / 1.18), facecolor="white")
+    fig = plt.figure(figsize=(8.27 / 1.18, 9.55 / 1.18), facecolor="white")
     outer = fig.add_gridspec(
         2,
         1,
-        height_ratios=[1.12, 0.88],
-        left=0.075,
-        right=0.985,
+        height_ratios=[1.35, 0.78],
+        left=0.055,
+        right=0.995,
         top=0.965,
         bottom=0.075,
-        hspace=0.27,
+        hspace=0.25,
     )
 
     # A: the structural result receives the full figure width.
-    matrix_grid = outer[0].subgridspec(2, 3, wspace=0.13, hspace=0.23)
+    matrix_grid = outer[0].subgridspec(2, 3, wspace=0.08, hspace=0.17)
     real = structures["real"]
     order = get_real_structure_order(real["partial"])
     n_features = real["partial"].shape[0]
@@ -1685,7 +1687,7 @@ def plot_hiv_experimental_1(
     fig.legend(
         handles=status_handles,
         loc="center",
-        bbox_to_anchor=(0.5, 0.485),
+        bbox_to_anchor=(0.5, 0.405),
         ncol=4,
         frameon=False,
         fontsize=6.0,
@@ -1701,10 +1703,10 @@ def plot_hiv_experimental_1(
     for method in methods:
         values = ablation_table.query(
             "dataset == @dataset and method == @method"
-        ).sort_values("percent_removed")
+        ).sort_values("n_features_removed")
         color = METHOD_COLORS[method]
         ablation_ax.plot(
-            values["percent_removed"], values["auc_mean"],
+            values["n_features_removed"], values["auc_mean"],
             color=color, marker="o", markersize=2.3, linewidth=1.05,
             label="GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
         )
@@ -1712,11 +1714,13 @@ def plot_hiv_experimental_1(
             lower_auc = np.clip(values["auc_mean"] - values["auc_sd"], 0.0, 1.0)
             upper_auc = np.clip(values["auc_mean"] + values["auc_sd"], 0.0, 1.0)
             ablation_ax.fill_between(
-                values["percent_removed"], lower_auc, upper_auc,
+                values["n_features_removed"], lower_auc, upper_auc,
                 color=color, alpha=0.14, linewidth=0,
             )
     ablation_ax.axhline(0.5, color="#777777", linestyle="--", linewidth=0.85)
-    ablation_ax.set_xlabel("Features removed (%)", fontsize=7.0)
+    feature_ticks = values["n_features_removed"].to_numpy(dtype=int)
+    ablation_ax.set_xticks(feature_ticks)
+    ablation_ax.set_xlabel("Features removed", fontsize=7.0)
     ablation_ax.set_ylabel("AUC", fontsize=7.0)
     ablation_ax.tick_params(axis="both", labelsize=6.2)
     ablation_ax.grid(axis="y", color="#D8D8D8", linewidth=0.6, alpha=0.65)
@@ -1818,6 +1822,117 @@ def plot_glasso_path_supplement(edge_status):
     return apply_notebook_figure_style(fig)
 
 
+def plot_hiv_experimental_3(edge_status, dataset="HIV", method_order=None):
+    """Experimental 3: a contiguous 2 x 3 categorical edge-status plate."""
+    structures = edge_status.structures[dataset]
+    methods = [
+        method for method in (method_order or METHOD_ORDER)
+        if method in structures["synthetic"]
+    ]
+    if len(methods) != 6:
+        raise ValueError("Experimental 3 requires exactly six synthesis methods.")
+
+    fig, axes = plt.subplots(
+        2,
+        3,
+        figsize=(8.27 / 1.18, 6.25 / 1.18),
+        squeeze=False,
+        gridspec_kw={"wspace": 0.0, "hspace": 0.0},
+    )
+    real = structures["real"]
+    order = get_real_structure_order(real["partial"])
+    n_features = real["partial"].shape[0]
+    tick_step = 10 if n_features <= 70 else 20
+    ticks = np.arange(0, n_features, tick_step)
+    tick_labels = [str(value + 1) for value in ticks]
+    status_cmap = ListedColormap([
+        STATUS_COLORS["absent"],
+        STATUS_COLORS["preserved"],
+        STATUS_COLORS["real_only"],
+        STATUS_COLORS["synthetic_only"],
+    ])
+
+    for index, (ax, method) in enumerate(zip(axes.ravel(), methods)):
+        row, col = divmod(index, 3)
+        syn_edges = structures["synthetic"][method]["edges"]
+        status = build_edge_status_matrix(real["edges"], syn_edges, n_features)
+        ax.imshow(
+            status[np.ix_(order, order)],
+            cmap=status_cmap,
+            vmin=-0.5,
+            vmax=3.5,
+            interpolation="nearest",
+            aspect="equal",
+        )
+        ax.set_xticks(ticks)
+        ax.set_yticks(ticks)
+        ax.set_xticklabels(tick_labels, fontsize=5.8)
+        ax.set_yticklabels(tick_labels if col == 0 else [], fontsize=5.8)
+        ax.tick_params(
+            axis="x",
+            top=row == 0,
+            labeltop=row == 0,
+            bottom=row == 1,
+            labelbottom=row == 1,
+            direction="out",
+            length=2.0,
+            width=0.7,
+            pad=1.0,
+        )
+        ax.tick_params(
+            axis="y",
+            left=col == 0,
+            labelleft=col == 0,
+            right=False,
+            direction="out",
+            length=2.0,
+            width=0.7,
+            pad=1.0,
+        )
+        ax.text(
+            0.025,
+            0.025,
+            "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=7.5,
+            weight="bold",
+            color=METHOD_COLORS[method],
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.86,
+                "pad": 1.2,
+            },
+            zorder=5,
+        )
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.85)
+            spine.set_color("#333333")
+
+    legend_handles = [
+        Patch(facecolor=STATUS_COLORS["preserved"], edgecolor="#333333", label="Preserved edge"),
+        Patch(facecolor=STATUS_COLORS["real_only"], edgecolor="#333333", label="Real-only / lost"),
+        Patch(facecolor=STATUS_COLORS["synthetic_only"], edgecolor="#333333", label="Synthetic-only"),
+        Patch(facecolor=STATUS_COLORS["absent"], edgecolor="#C9CDD2", label="Absent in both"),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.018),
+        ncol=4,
+        frameon=False,
+        fontsize=7.2,
+        handlelength=1.4,
+        handletextpad=0.45,
+        columnspacing=1.0,
+    )
+    fig.subplots_adjust(left=0.075, right=0.99, top=0.965, bottom=0.115, wspace=0.0, hspace=0.0)
+    return apply_notebook_figure_style(fig)
+
+
 def plot_hiv_experimental_2(
     datasets,
     cohorts,
@@ -1897,9 +2012,9 @@ def plot_hiv_experimental_2(
 
         ablation_values = ablation_table.query(
             "dataset == @dataset and method == @method"
-        ).sort_values("percent_removed")
+        ).sort_values("n_features_removed")
         ablation_ax.plot(
-            ablation_values["percent_removed"],
+            ablation_values["n_features_removed"],
             ablation_values["auc_mean"],
             color=color,
             marker="o",
@@ -1915,7 +2030,7 @@ def plot_hiv_experimental_2(
                 ablation_values["auc_mean"] + ablation_values["auc_sd"], 0.0, 1.0
             )
             ablation_ax.fill_between(
-                ablation_values["percent_removed"],
+                ablation_values["n_features_removed"],
                 lower_auc,
                 upper_auc,
                 color=color,
@@ -1962,7 +2077,9 @@ def plot_hiv_experimental_2(
             -0.14, 1.035, panel, transform=ax.transAxes,
             ha="left", va="bottom", fontsize=11.0, weight="bold", clip_on=False,
         )
-    ablation_ax.set_xlabel("Features removed (%)", fontsize=7.2)
+    feature_ticks = ablation_values["n_features_removed"].to_numpy(dtype=int)
+    ablation_ax.set_xticks(feature_ticks)
+    ablation_ax.set_xlabel("Features removed", fontsize=7.2)
     noise_ax.set_xlabel(r"Noise level $\sigma$", fontsize=7.2)
     noise_ax.legend(
         loc="best", frameon=False, fontsize=5.8, ncol=2,
