@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 from scipy.stats import ttest_ind
@@ -1662,7 +1663,7 @@ def plot_hiv_experimental_1(
         ax.set_title(
             "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
             color=METHOD_COLORS[method],
-            fontsize=7.6,
+            fontsize=9,
             weight="bold",
             pad=2.5,
         )
@@ -1687,13 +1688,13 @@ def plot_hiv_experimental_1(
     fig.legend(
         handles=status_handles,
         loc="center",
-        bbox_to_anchor=(0.5, 0.405),
+        bbox_to_anchor=(0.5, 0.42),
         ncol=4,
         frameon=False,
-        fontsize=6.0,
+        fontsize=7,
         handlelength=1.25,
         handletextpad=0.35,
-        columnspacing=0.75,
+        columnspacing=0.9,
     )
 
     lower = outer[1].subgridspec(1, 2, width_ratios=[0.38, 0.62], wspace=0.18)
@@ -1759,22 +1760,22 @@ def plot_hiv_experimental_1(
         add_confidence_ellipse(ax, Zs, METHOD_COLORS[method], linewidth=0.95)
         ax.set_title(
             "GMM-SMOTE" if method == "GMM-guided SMOTE" else method,
-            color=METHOD_COLORS[method], fontsize=5.8, weight="bold", pad=1.5,
+            color=METHOD_COLORS[method], fontsize=7, weight="bold", pad=1.5,
         )
         ax.set_xlabel(
             f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)" if row == 1 else "",
-            fontsize=4.2, labelpad=0.6,
+            fontsize=6.5, labelpad=0.6,
         )
         ax.set_ylabel(
             f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)" if col == 0 else "",
-            fontsize=4.2, labelpad=0.6,
+            fontsize=6.5, labelpad=0.6,
         )
         ax.tick_params(axis="both", labelsize=3.9, length=1.4, pad=0.5)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=3))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
         ax.legend(
-            loc="upper right", frameon=False, fontsize=3.8,
-            markerscale=1.1, handletextpad=0.2, borderaxespad=0.15,
+            loc="upper left", frameon=True, fontsize=5, facecolor="white",
+            markerscale=2, handletextpad=0.2, borderaxespad=0.15, ncol=2, columnspacing=0.8,  framealpha=0.9,
         )
         for spine in ax.spines.values():
             spine.set_linewidth(0.55)
@@ -1787,38 +1788,126 @@ def plot_hiv_experimental_1(
 
 
 def plot_glasso_path_supplement(edge_status):
-    """Plot the HIV Graphical Lasso regularization path once for supplement."""
+    """Plot every HIV Graphical Lasso edge path for the supplement."""
     path_table = edge_status.regularization_path
     if path_table is None or path_table.empty:
         raise ValueError("edge_status must contain a regularization path.")
-    fig, ax = plt.subplots(figsize=(8.27 / 1.18, 3.85 / 1.18))
+    fig = plt.figure(figsize=(8.27 / 1.18, 5.05 / 1.18), facecolor="white")
+    grid = fig.add_gridspec(2, 1, height_ratios=[3.25, 1.15], hspace=0.08)
+    ax = fig.add_subplot(grid[0])
+    survival_ax = fig.add_subplot(grid[1], sharex=ax)
     edge_columns = ["feature_a_matrix_index", "feature_b_matrix_index"]
     grouped_paths = list(path_table.groupby(edge_columns, sort=False))
-    colors = plt.get_cmap("tab10")(np.linspace(0, 1, len(grouped_paths)))
-    for color, ((edge_a, edge_b), values) in zip(colors, grouped_paths):
-        values = values.sort_values("alpha")
-        ax.plot(
-            values["alpha"], values["precision_coefficient"],
-            color=color, linewidth=1.35,
-            label=f"Edge ({int(edge_a)}, {int(edge_b)})",
-        )
     selected_alpha = float(path_table["selected_alpha"].iloc[0])
+    if "selected_nonzero" not in path_table.columns:
+        selected_flags = {}
+        for edge_key, values in grouped_paths:
+            nearest = values.iloc[(values["alpha"] - selected_alpha).abs().argmin()]
+            selected_flags[edge_key] = abs(float(nearest["precision_coefficient"])) > 1e-7
+    else:
+        selected_flags = {
+            edge_key: bool(values["selected_nonzero"].iloc[0])
+            for edge_key, values in grouped_paths
+        }
+
+    total_edges = len(grouped_paths)
+    retained_edges = sum(selected_flags.values())
+    removed_edges = total_edges - retained_edges
+    retained_pct = 100.0 * retained_edges / total_edges
+    removed_pct = 100.0 * removed_edges / total_edges
+
+    # Draw both outcome classes with modest contrast. The companion survival
+    # panel below carries the quantitative emphasis, avoiding the impression
+    # that the visually prominent retained paths are the majority.
+    for selected_state in (False, True):
+        for edge_key, values in grouped_paths:
+            if selected_flags[edge_key] != selected_state:
+                continue
+            values = values.sort_values("alpha")
+            ax.plot(
+                np.log(values["alpha"].to_numpy(dtype=float)),
+                values["precision_coefficient"],
+                color="#1F5A93" if selected_state else "#AEB6BF",
+                linewidth=0.72 if selected_state else 0.46,
+                alpha=0.52 if selected_state else 0.22,
+                zorder=2 if selected_state else 1,
+            )
     ax.axvline(
-        selected_alpha, color="#222222", linestyle="--", linewidth=1.15,
-        label=rf"Analysis $\alpha={selected_alpha:g}$",
+        np.log(selected_alpha),
+        color="#222222",
+        linestyle="--",
+        linewidth=1.2,
+        zorder=3,
     )
     ax.axhline(0, color="#777777", linewidth=0.7, alpha=0.75)
-    ax.set_xscale("log")
-    ax.invert_xaxis()
-    ax.set_xlabel(r"Regularization parameter $\alpha$", fontsize=8.0)
     ax.set_ylabel("Precision coefficient", fontsize=8.0)
     ax.tick_params(axis="both", labelsize=6.8)
+    ax.tick_params(axis="x", labelbottom=False)
     ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.38)
-    ax.legend(
-        loc="upper center", bbox_to_anchor=(0.5, -0.27), frameon=False,
-        fontsize=5.8, ncol=4, handlelength=1.7, columnspacing=0.8,
+
+    # Show the complete sparsification process directly rather than relying on
+    # the overlapping coefficient paths to communicate how many edges survive.
+    remaining_by_alpha = {
+        float(alpha): int(np.count_nonzero(values.to_numpy(dtype=float) > 1e-7))
+        for alpha, values in path_table.assign(
+            absolute_coefficient=path_table["precision_coefficient"].abs()
+        ).groupby("alpha")["absolute_coefficient"]
+    }
+    remaining_by_alpha[selected_alpha] = retained_edges
+    survival_alphas = np.array(sorted(remaining_by_alpha), dtype=float)
+    survival_pct = np.array(
+        [100.0 * remaining_by_alpha[alpha] / total_edges for alpha in survival_alphas],
+        dtype=float,
     )
-    fig.subplots_adjust(left=0.10, right=0.985, top=0.95, bottom=0.31)
+    log_survival_alphas = np.log(survival_alphas)
+    selected_log_alpha = np.log(selected_alpha)
+    survival_ax.fill_between(
+        log_survival_alphas, 0, survival_pct,
+        color="#D9DEE3", alpha=0.72, linewidth=0,
+    )
+    survival_ax.plot(
+        log_survival_alphas, survival_pct,
+        color="#59636E", linewidth=1.15,
+    )
+    survival_ax.axvline(
+        selected_log_alpha, color="#222222", linestyle="--", linewidth=1.2,
+    )
+    survival_ax.scatter(
+        [selected_log_alpha], [retained_pct], s=24,
+        color="#1F5A93", edgecolor="white", linewidth=0.7, zorder=4,
+    )
+    survival_ax.annotate(
+        f"{retained_edges:,} retained ({retained_pct:.1f}%)\n"
+        f"{removed_edges:,} removed ({removed_pct:.1f}%)",
+        xy=(selected_log_alpha, retained_pct),
+        xytext=(selected_log_alpha + 0.22, 58),
+        ha="left", va="center", fontsize=6.2, color="#333333",
+        bbox=dict(facecolor="white", edgecolor="#D6DADF", alpha=0.94, pad=2.2),
+        arrowprops=dict(arrowstyle="-", color="#1F5A93", linewidth=0.8),
+    )
+    survival_ax.set_ylim(0, 100)
+    survival_ax.set_yticks([0, 25, 50, 75, 100])
+    survival_ax.set_ylabel("Edges retained (%)", fontsize=7.1)
+    survival_ax.set_xlabel(r"$\log(\lambda)$", fontsize=8.0)
+    survival_ax.tick_params(axis="both", labelsize=6.6)
+    survival_ax.grid(axis="y", linestyle="--", linewidth=0.55, alpha=0.36)
+    survival_ax.spines["top"].set_visible(False)
+    survival_ax.spines["right"].set_visible(False)
+    ax.legend(
+        handles=[
+            Line2D([0], [0], color="#AEB6BF", linewidth=1.1, alpha=0.75, label=r"Zero at selected $\lambda$"),
+            Line2D([0], [0], color="#1F5A93", linewidth=1.7, label=r"Non-zero at selected $\lambda$"),
+            Line2D([0], [0], color="#222222", linewidth=1.2, linestyle="--", label=rf"Selected $\lambda={selected_alpha:g}$"),
+        ],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.60),
+        frameon=False,
+        fontsize=6.2,
+        ncol=3,
+        handlelength=1.8,
+        columnspacing=1.0,
+    )
+    fig.subplots_adjust(left=0.105, right=0.985, top=0.965, bottom=0.22)
     return apply_notebook_figure_style(fig)
 
 
@@ -1921,7 +2010,7 @@ def plot_hiv_experimental_3(edge_status, dataset="HIV", method_order=None):
     fig.legend(
         handles=legend_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.018),
+        bbox_to_anchor=(0.5, 0.05),
         ncol=4,
         frameon=False,
         fontsize=7.2,

@@ -1283,11 +1283,14 @@ def plot_figure4_hiv_structural_mosaic(
     off_diagonal_cov = emp_cov.copy()
     np.fill_diagonal(off_diagonal_cov, 0.0)
     zero_solution_alpha = float(np.max(np.abs(off_diagonal_cov)))
-    alpha_grid = np.geomspace(
-        selected_alpha * 0.1,
-        max(selected_alpha * 2.5, zero_solution_alpha * 1.05),
-        num=40,
-    )
+    alpha_grid = np.unique(np.append(
+        np.geomspace(
+            selected_alpha * 0.1,
+            max(selected_alpha * 2.5, zero_solution_alpha * 1.05),
+            num=40,
+        ),
+        selected_alpha,
+    ))
     edge_i, edge_j = np.triu_indices(Xs.shape[1], k=1)
     path = np.empty((len(alpha_grid), len(edge_i)), dtype=float)
     for alpha_index, alpha in enumerate(alpha_grid):
@@ -1304,24 +1307,22 @@ def plot_figure4_hiv_structural_mosaic(
             )
         path[alpha_index] = precision[edge_i, edge_j]
 
-    strengths = np.max(np.abs(path), axis=0)
-    plotted_edges = np.flatnonzero(strengths > 1e-10)
-    plotted_edges = plotted_edges[np.argsort(strengths[plotted_edges])[::-1][:10]]
+    plotted_edges = np.arange(len(edge_i))
     heatmap_number = np.empty(n_features, dtype=int)
     heatmap_number[order] = np.arange(1, n_features + 1)
     path_ax = fig.add_subplot(grid[2, :])
     path_rows = []
-    path_colors = plt.get_cmap("tab10")(np.linspace(0, 1, max(len(plotted_edges), 1)))
-    for line_index, edge_index in enumerate(plotted_edges):
+    for edge_index in plotted_edges:
         i, j = int(edge_i[edge_index]), int(edge_j[edge_index])
         edge_a, edge_b = int(heatmap_number[i]), int(heatmap_number[j])
-        label = f"Edge ({edge_a}, {edge_b})"
+        selected_nonzero = (min(i, j), max(i, j)) in real_edges
         path_ax.plot(
-            alpha_grid,
+            np.log(alpha_grid),
             path[:, edge_index],
-            color=path_colors[line_index],
-            linewidth=1.45,
-            label=label,
+            color="#1F5A93" if selected_nonzero else "#AEB6BF",
+            linewidth=0.85 if selected_nonzero else 0.38,
+            alpha=0.72 if selected_nonzero else 0.16,
+            zorder=2 if selected_nonzero else 1,
         )
         path_rows.extend(
             {
@@ -1332,21 +1333,20 @@ def plot_figure4_hiv_structural_mosaic(
                 "feature_b_matrix_index": edge_b,
                 "feature_a": names[i],
                 "feature_b": names[j],
+                "selected_nonzero": bool(selected_nonzero),
                 "precision_coefficient": float(coefficient),
             }
             for alpha, coefficient in zip(alpha_grid, path[:, edge_index])
         )
     path_ax.axvline(
-        selected_alpha,
+        np.log(selected_alpha),
         color="#222222",
         linestyle="--",
         linewidth=1.25,
-        label=rf"Analysis $\alpha={selected_alpha:g}$",
+        label=rf"Selected $\lambda={selected_alpha:g}$",
     )
     path_ax.axhline(0, color="#777777", linewidth=0.75, alpha=0.75)
-    path_ax.set_xscale("log")
-    path_ax.invert_xaxis()
-    path_ax.set_xlabel(r"Regularization parameter $\alpha$", fontsize=8.2)
+    path_ax.set_xlabel(r"$\log(\lambda)$", fontsize=8.2)
     path_ax.set_ylabel("Precision coefficient", fontsize=8.2)
     path_ax.tick_params(axis="both", labelsize=7.0)
     path_ax.grid(True, linestyle="--", linewidth=0.65, alpha=0.38)
@@ -1363,11 +1363,16 @@ def plot_figure4_hiv_structural_mosaic(
         clip_on=False,
     )
     path_ax.legend(
+        handles=[
+            Line2D([0], [0], color="#AEB6BF", linewidth=1.0, alpha=0.55, label="All candidate edges"),
+            Line2D([0], [0], color="#8E3B76", linewidth=1.5, label=r"Nonzero at selected $\lambda$"),
+            Line2D([0], [0], color="#222222", linewidth=1.25, linestyle="--", label=rf"Selected $\lambda={selected_alpha:g}$"),
+        ],
         loc="upper center",
         bbox_to_anchor=(0.5, -0.27),
         frameon=False,
         fontsize=6.4,
-        ncol=4,
+        ncol=3,
         handlelength=1.8,
         columnspacing=0.9,
     )
