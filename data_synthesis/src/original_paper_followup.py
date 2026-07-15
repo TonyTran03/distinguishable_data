@@ -72,6 +72,39 @@ METHOD_COLORS = {
     "WGAN-GP": "#8C564B",
 }
 
+PANEL_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def label_figure_panels(fig, axes=None, start=0):
+    """Give every supplied Matplotlib axes its own sequential panel letter."""
+    axes = list(fig.axes if axes is None else axes)
+    if start < 0 or start + len(axes) > len(PANEL_LABELS):
+        raise ValueError("Panel labels must fit within A-Z.")
+
+    # Replace older group-level labels so a composite cannot contain duplicate
+    # letters after this per-axes labelling pass.
+    for ax in fig.axes:
+        for text_artist in list(ax.texts):
+            if text_artist.get_text() in set(PANEL_LABELS):
+                text_artist.remove()
+
+    for offset, ax in enumerate(axes):
+        panel_label = ax.text(
+            -0.055,
+            1.045,
+            PANEL_LABELS[start + offset],
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=10.5,
+            weight="bold",
+            color="#111111",
+            clip_on=False,
+            zorder=20,
+        )
+        panel_label.set_gid("panel-letter")
+    return fig
+
 
 def sample_method(
     X,
@@ -1787,6 +1820,59 @@ def plot_hiv_experimental_1(
     return apply_notebook_figure_style(fig)
 
 
+def build_glasso_feature_order_table(datasets, edge_status, dataset_order=None):
+    """Map clustered Graphical Lasso matrix positions to source features."""
+    dataset_order = list(dataset_order or datasets.keys())
+    rows = []
+    for dataset in dataset_order:
+        if dataset not in edge_status.structures:
+            raise KeyError(f"No Graphical Lasso structure is available for {dataset!r}.")
+        feature_names = list(datasets[dataset]["feature_names"])
+        real_partial = edge_status.structures[dataset]["real"]["partial"]
+        order = get_real_structure_order(real_partial)
+        if len(feature_names) != len(order):
+            raise ValueError(
+                f"{dataset!r} has {len(feature_names)} feature names but "
+                f"{len(order)} Graphical Lasso variables."
+            )
+        rows.extend(
+            {
+                "dataset": dataset,
+                "matrix_index": matrix_index,
+                "original_feature_index": int(original_index) + 1,
+                "feature_name": feature_names[int(original_index)],
+            }
+            for matrix_index, original_index in enumerate(order, start=1)
+        )
+    return pd.DataFrame(rows)
+
+
+def glasso_feature_order_to_latex(feature_order_table):
+    """Render the complete Graphical Lasso feature mapping as a longtable."""
+    latex_table = feature_order_table.rename(columns={
+        "dataset": "Dataset",
+        "matrix_index": "Matrix index",
+        "original_feature_index": "Original index",
+        "feature_name": "Feature",
+    })
+    latex = latex_table.to_latex(
+        index=False,
+        longtable=True,
+        escape=True,
+        caption=(
+            "Feature ordering used in the Graphical Lasso edge-comparison "
+            "matrices. For each dataset, matrix positions were obtained by "
+            "average-linkage hierarchical clustering of the absolute "
+            "partial-correlation structure estimated from the real data, "
+            "using dissimilarity $d_{ij}=1-|\\rho^{\\mathrm{partial}}_{ij}|$. "
+            "The same real-derived order was applied to every synthetic method."
+        ),
+        label="tab:glasso_feature_order",
+        column_format="lrrp{0.48\\textwidth}",
+    )
+    return "% Requires \\usepackage{booktabs,longtable}\n" + latex
+
+
 def plot_glasso_path_supplement(edge_status):
     """Plot every HIV Graphical Lasso edge path for the supplement."""
     path_table = edge_status.regularization_path
@@ -1816,10 +1902,10 @@ def plot_glasso_path_supplement(edge_status):
     retained_pct = 100.0 * retained_edges / total_edges
     removed_pct = 100.0 * removed_edges / total_edges
 
-    # Draw both outcome classes with modest contrast. The companion survival
-    # panel below carries the quantitative emphasis, avoiding the impression
-    # that the visually prominent retained paths are the majority.
-    for selected_state in (False, True):
+    # Draw retained paths first, then place the much more numerous paths that
+    # are zero at the selected lambda on top.  A warm retained-path color keeps
+    # this panel distinct from the blue retained-area encoding below.
+    for selected_state in (True, False):
         for edge_key, values in grouped_paths:
             if selected_flags[edge_key] != selected_state:
                 continue
@@ -1827,10 +1913,10 @@ def plot_glasso_path_supplement(edge_status):
             ax.plot(
                 np.log(values["alpha"].to_numpy(dtype=float)),
                 values["precision_coefficient"],
-                color="#1F5A93" if selected_state else "#AEB6BF",
-                linewidth=0.72 if selected_state else 0.46,
-                alpha=0.52 if selected_state else 0.22,
-                zorder=2 if selected_state else 1,
+                color="#C46A2D" if selected_state else "#6F7782",
+                linewidth=0.72 if selected_state else 0.48,
+                alpha=0.48 if selected_state else 0.28,
+                zorder=1 if selected_state else 2,
             )
     ax.axvline(
         np.log(selected_alpha),
@@ -1861,20 +1947,27 @@ def plot_glasso_path_supplement(edge_status):
     )
     log_survival_alphas = np.log(survival_alphas)
     selected_log_alpha = np.log(selected_alpha)
+    # The gray envelope is the complete candidate-edge set (100%); blue is the
+    # portion still nonzero.  The gray area left above the curve therefore
+    # directly shows the edges removed by regularization.
+    survival_ax.fill_between(
+        log_survival_alphas, 0, 100,
+        color="#D9DEE3", alpha=0.78, linewidth=0, zorder=0,
+    )
     survival_ax.fill_between(
         log_survival_alphas, 0, survival_pct,
-        color="#D9DEE3", alpha=0.72, linewidth=0,
+        color="#C46A2D", alpha=0.78, linewidth=0, zorder=1,
     )
     survival_ax.plot(
         log_survival_alphas, survival_pct,
-        color="#59636E", linewidth=1.15,
+        color="#C46A2D", linewidth=1.15, zorder=2,
     )
     survival_ax.axvline(
         selected_log_alpha, color="#222222", linestyle="--", linewidth=1.2,
     )
     survival_ax.scatter(
         [selected_log_alpha], [retained_pct], s=24,
-        color="#1F5A93", edgecolor="white", linewidth=0.7, zorder=4,
+        color="#C46A2D", edgecolor="white", linewidth=0.7, zorder=4,
     )
     survival_ax.annotate(
         f"{retained_edges:,} retained ({retained_pct:.1f}%)\n"
@@ -1883,7 +1976,7 @@ def plot_glasso_path_supplement(edge_status):
         xytext=(selected_log_alpha + 0.22, 58),
         ha="left", va="center", fontsize=6.2, color="#333333",
         bbox=dict(facecolor="white", edgecolor="#D6DADF", alpha=0.94, pad=2.2),
-        arrowprops=dict(arrowstyle="-", color="#1F5A93", linewidth=0.8),
+        arrowprops=dict(arrowstyle="-", color="#C46A2D", linewidth=0.8),
     )
     survival_ax.set_ylim(0, 100)
     survival_ax.set_yticks([0, 25, 50, 75, 100])
@@ -1891,12 +1984,13 @@ def plot_glasso_path_supplement(edge_status):
     survival_ax.set_xlabel(r"$\log(\lambda)$", fontsize=8.0)
     survival_ax.tick_params(axis="both", labelsize=6.6)
     survival_ax.grid(axis="y", linestyle="--", linewidth=0.55, alpha=0.36)
+
     survival_ax.spines["top"].set_visible(False)
     survival_ax.spines["right"].set_visible(False)
     ax.legend(
         handles=[
-            Line2D([0], [0], color="#AEB6BF", linewidth=1.1, alpha=0.75, label=r"Zero at selected $\lambda$"),
-            Line2D([0], [0], color="#1F5A93", linewidth=1.7, label=r"Non-zero at selected $\lambda$"),
+            Line2D([0], [0], color="#6F7782", linewidth=1.1, alpha=0.85, label=r"Zero at selected $\lambda$"),
+            Line2D([0], [0], color="#C46A2D", linewidth=1.7, label=r"Non-zero at selected $\lambda$"),
             Line2D([0], [0], color="#222222", linewidth=1.2, linestyle="--", label=rf"Selected $\lambda={selected_alpha:g}$"),
         ],
         loc="upper center",

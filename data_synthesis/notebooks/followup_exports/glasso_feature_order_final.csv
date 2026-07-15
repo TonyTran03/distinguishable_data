@@ -1,0 +1,102 @@
+dataset,matrix_index,original_feature_index,feature_name
+HIV,1,1,spikeProduction_D1D2
+HIV,2,2,spikeDecay_D1D2
+HIV,3,51,V8_IL2
+HIV,4,52,V9_IL2
+HIV,5,56,Il2_production
+HIV,6,55,IFNG_production
+HIV,7,49,V8_IFNg
+HIV,8,54,V8Dual
+HIV,9,50,V9_IFNg
+HIV,10,53,V9Dual
+HIV,11,35,V8b_Saliva_IgGspike
+HIV,12,36,V8b_Saliva_IgGRBD
+HIV,13,16,V9_blood_IgGspike
+HIV,14,37,V9_Saliva_IgGspike
+HIV,15,38,V9_Saliva_IgGRBD
+HIV,16,63,V9_ACE2
+HIV,17,26,V9_blood_IgGRBD
+HIV,18,59,V9Neut
+HIV,19,47,V9_Saliva_IgAspike
+HIV,20,48,V9_Saliva_IgARBD
+HIV,21,45,V8b_Saliva_IgAspike
+HIV,22,46,V8b_Saliva_IgARBD
+HIV,23,34,V8_Saliva_IgGRBD
+HIV,24,40,V4_Saliva_IgARBD
+HIV,25,33,V8_Saliva_IgGspike
+HIV,26,44,V8_Saliva_IgARBD
+HIV,27,41,V5_Saliva_IgAspike
+HIV,28,43,V8_Saliva_IgAspike
+HIV,29,42,V5_Saliva_IgARBD
+HIV,30,31,V5_Saliva_IgGspike
+HIV,31,32,V5_Saliva_IgGRBD
+HIV,32,18,V11_blood_IgGspike
+HIV,33,28,V11_blood_IgGRBD
+HIV,34,15,V8b_blood_IgGspike
+HIV,35,25,V8b_blood_IgGRBD
+HIV,36,62,V8b_ACE2
+HIV,37,30,V4_Saliva_IgGRBD
+HIV,38,29,V4_Saliva_IgGspike
+HIV,39,39,V4_Saliva_IgAspike
+HIV,40,10,V4_blood_IgGspike
+HIV,41,11,V4a_blood_IgGspike
+HIV,42,20,V4_blood_IgGRBD
+HIV,43,21,V4a_blood_IgGRBD
+HIV,44,13,V8_blood_IgGspike
+HIV,45,12,V6_blood_IgGspike
+HIV,46,22,V6_blood_IgGRBD
+HIV,47,14,V8a_blood_IgGspike
+HIV,48,24,V8a_blood_IgGRBD
+HIV,49,60,V7_ACE2
+HIV,50,23,V8_blood_IgGRBD
+HIV,51,61,V8_ACE2
+HIV,52,58,V8Neut
+HIV,53,57,RATIO_CD4CD8
+HIV,54,17,V10_blood_IgGspike
+HIV,55,27,V10_blood_IgGRBD
+HIV,56,9,V1_blood_IgGspike
+HIV,57,19,V1_blood_IgGRBD
+HIV,58,7,RBDProduction_D3
+HIV,59,8,RBDDecay_D3
+HIV,60,3,spikeProduction_D3
+HIV,61,4,spikeDecay_D3
+HIV,62,5,RBDProduction_D1D2
+HIV,63,6,RBDDecay_D1D2
+Breast Cancer,1,14,area error
+Breast Cancer,2,11,radius error
+Breast Cancer,3,13,perimeter error
+Breast Cancer,4,4,mean area
+Breast Cancer,5,1,mean radius
+Breast Cancer,6,3,mean perimeter
+Breast Cancer,7,23,worst perimeter
+Breast Cancer,8,21,worst radius
+Breast Cancer,9,24,worst area
+Breast Cancer,10,9,mean symmetry
+Breast Cancer,11,29,worst symmetry
+Breast Cancer,12,5,mean smoothness
+Breast Cancer,13,25,worst smoothness
+Breast Cancer,14,10,mean fractal dimension
+Breast Cancer,15,30,worst fractal dimension
+Breast Cancer,16,16,compactness error
+Breast Cancer,17,20,fractal dimension error
+Breast Cancer,18,17,concavity error
+Breast Cancer,19,18,concave points error
+Breast Cancer,20,6,mean compactness
+Breast Cancer,21,7,mean concavity
+Breast Cancer,22,8,mean concave points
+Breast Cancer,23,28,worst concave points
+Breast Cancer,24,26,worst compactness
+Breast Cancer,25,27,worst concavity
+Breast Cancer,26,2,mean texture
+Breast Cancer,27,22,worst texture
+Breast Cancer,28,19,symmetry error
+Breast Cancer,29,12,texture error
+Breast Cancer,30,15,smoothness error
+Diabetes,1,7,pedi
+Diabetes,2,1,preg
+Diabetes,3,8,age
+Diabetes,4,2,plas
+Diabetes,5,4,skin
+Diabetes,6,5,insu
+Diabetes,7,3,pres
+Diabetes,8,6,mass

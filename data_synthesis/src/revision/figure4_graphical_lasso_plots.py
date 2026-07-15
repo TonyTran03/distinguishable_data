@@ -1307,7 +1307,16 @@ def plot_figure4_hiv_structural_mosaic(
             )
         path[alpha_index] = precision[edge_i, edge_j]
 
-    plotted_edges = np.arange(len(edge_i))
+    selected_flags = np.array([
+        (min(int(i), int(j)), max(int(i), int(j))) in real_edges
+        for i, j in zip(edge_i, edge_j)
+    ])
+    # Retained trajectories go down first; zero-at-selected trajectories are
+    # drawn last so the dominant sparse outcome remains visible.
+    plotted_edges = np.concatenate([
+        np.flatnonzero(selected_flags),
+        np.flatnonzero(~selected_flags),
+    ])
     heatmap_number = np.empty(n_features, dtype=int)
     heatmap_number[order] = np.arange(1, n_features + 1)
     path_ax = fig.add_subplot(grid[2, :])
@@ -1315,14 +1324,14 @@ def plot_figure4_hiv_structural_mosaic(
     for edge_index in plotted_edges:
         i, j = int(edge_i[edge_index]), int(edge_j[edge_index])
         edge_a, edge_b = int(heatmap_number[i]), int(heatmap_number[j])
-        selected_nonzero = (min(i, j), max(i, j)) in real_edges
+        selected_nonzero = bool(selected_flags[edge_index])
         path_ax.plot(
             np.log(alpha_grid),
             path[:, edge_index],
-            color="#1F5A93" if selected_nonzero else "#AEB6BF",
-            linewidth=0.85 if selected_nonzero else 0.38,
-            alpha=0.72 if selected_nonzero else 0.16,
-            zorder=2 if selected_nonzero else 1,
+            color="#C46A2D" if selected_nonzero else "#6F7782",
+            linewidth=0.85 if selected_nonzero else 0.42,
+            alpha=0.58 if selected_nonzero else 0.24,
+            zorder=1 if selected_nonzero else 2,
         )
         path_rows.extend(
             {
@@ -1364,8 +1373,8 @@ def plot_figure4_hiv_structural_mosaic(
     )
     path_ax.legend(
         handles=[
-            Line2D([0], [0], color="#AEB6BF", linewidth=1.0, alpha=0.55, label="All candidate edges"),
-            Line2D([0], [0], color="#8E3B76", linewidth=1.5, label=r"Nonzero at selected $\lambda$"),
+            Line2D([0], [0], color="#6F7782", linewidth=1.0, alpha=0.80, label=r"Zero at selected $\lambda$"),
+            Line2D([0], [0], color="#C46A2D", linewidth=1.5, label=r"Nonzero at selected $\lambda$"),
             Line2D([0], [0], color="#222222", linewidth=1.25, linestyle="--", label=rf"Selected $\lambda={selected_alpha:g}$"),
         ],
         loc="upper center",
