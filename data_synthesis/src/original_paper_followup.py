@@ -1230,6 +1230,185 @@ def summarize_marginal_tests(table):
     )
 
 
+def plot_hiv_marginal_overlap_supplement(
+    datasets,
+    cohorts,
+    marginal_tests,
+    dataset="HIV",
+    method_order=None,
+    top_n=8,
+    feature_start=0,
+):
+    """Plot one title-free supplement page of HIV marginal overlaps.
+
+    Features are ranked by their largest KS statistic across methods. Each row
+    uses one real-derived standardization and one pooled 1st--99th percentile
+    range so the six synthetic-method panels are directly comparable. Use
+    ``feature_start`` to paginate the complete ranked feature list.
+    """
+    method_order = [
+        method
+        for method in (method_order or METHOD_ORDER)
+        if method in cohorts[dataset]
+    ]
+    if len(method_order) != 6:
+        raise ValueError(
+            "The HIV marginal-overlap supplement requires all six methods."
+        )
+    if top_n < 1:
+        raise ValueError("top_n must be positive.")
+    if feature_start < 0:
+        raise ValueError("feature_start cannot be negative.")
+
+    X_real = np.asarray(datasets[dataset]["X"], dtype=np.float64)
+    feature_names = list(
+        datasets[dataset].get(
+            "feature_names",
+            [f"feature_{index + 1}" for index in range(X_real.shape[1])],
+        )
+    )
+    name_to_index = {str(name): index for index, name in enumerate(feature_names)}
+    subset = marginal_tests[marginal_tests["dataset"] == dataset].copy()
+    ranked_features = (
+        subset.groupby("feature", sort=False)["ks_statistic"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()[feature_start:feature_start + int(top_n)]
+    )
+    if not ranked_features:
+        raise ValueError(f"No marginal-test results are available for {dataset!r}.")
+
+    # The reciprocal dimensions finish at true A4 landscape after the shared
+    # notebook style applies its 1.18 figure-size multiplier.
+    fig, axes = plt.subplots(
+        len(ranked_features),
+        len(method_order),
+        figsize=(11.69 / 1.18, 8.27 / 1.18),
+        squeeze=False,
+        sharex="row",
+        sharey="row",
+    )
+
+    for row, feature in enumerate(ranked_features):
+        feature_index = name_to_index[str(feature)]
+        real_values = X_real[:, feature_index]
+        real_values = real_values[np.isfinite(real_values)]
+        center = float(np.mean(real_values))
+        scale = float(np.std(real_values, ddof=1))
+        if not np.isfinite(scale) or np.isclose(scale, 0.0):
+            scale = 1.0
+        real_z = (real_values - center) / scale
+
+        synthetic_z = {}
+        for method in method_order:
+            values = np.asarray(
+                cohorts[dataset][method][0][:, feature_index], dtype=np.float64
+            )
+            values = values[np.isfinite(values)]
+            synthetic_z[method] = (values - center) / scale
+
+        pooled = np.concatenate([real_z, *synthetic_z.values()])
+        x_low, x_high = np.quantile(pooled, [0.01, 0.99])
+        x_low, x_high = float(x_low), float(x_high)
+        if np.isclose(x_low, x_high):
+            pad = max(0.5, abs(x_low) * 0.05)
+            x_low, x_high = x_low - pad, x_high + pad
+        visible = pooled[(pooled >= x_low) & (pooled <= x_high)]
+        candidate_edges = np.histogram_bin_edges(visible, bins="fd")
+        n_bins = int(np.clip(len(candidate_edges) - 1, 10, 22))
+        edges = np.linspace(x_low, x_high, n_bins + 1)
+        axis_pad = 0.07 * (x_high - x_low)
+
+        for col, method in enumerate(method_order):
+            ax = axes[row, col]
+            method_color = METHOD_COLORS[method]
+            ax.hist(
+                real_z,
+                bins=edges,
+                density=True,
+                histtype="stepfilled",
+                color="#777777",
+                alpha=0.34,
+                linewidth=0,
+            )
+            ax.hist(
+                synthetic_z[method],
+                bins=edges,
+                density=True,
+                histtype="stepfilled",
+                color=method_color,
+                alpha=0.34,
+                linewidth=0,
+            )
+            ax.hist(
+                real_z,
+                bins=edges,
+                density=True,
+                histtype="step",
+                color="#333434",
+                linewidth=0.85,
+            )
+            ax.hist(
+                synthetic_z[method],
+                bins=edges,
+                density=True,
+                histtype="step",
+                color=method_color,
+                linewidth=0.85,
+            )
+            ks_values = subset.loc[
+                (subset["method"] == method) & (subset["feature"] == feature),
+                "ks_statistic",
+            ]
+            if not ks_values.empty:
+                ax.text(
+                    0.97,
+                    0.09,
+                    f"KS {float(ks_values.iloc[0]):.2f}",
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="bottom",
+                    fontsize=4.8,
+                    bbox={
+                        "facecolor": "white",
+                        "edgecolor": "none",
+                        "alpha": 0.80,
+                        "pad": 0.7,
+                    },
+                )
+
+            if row == 0:
+                ax.set_title(method, fontsize=7.3, weight="semibold", pad=4.0)
+            if col == 0:
+                feature_label = str(feature).replace("_", " ")
+                if len(feature_label) > 25:
+                    feature_label = feature_label[:22] + "..."
+                ax.set_ylabel(feature_label, fontsize=5.5, weight="semibold")
+            else:
+                ax.tick_params(axis="y", labelleft=False)
+            if row == len(ranked_features) - 1:
+                ax.set_xlabel("Standardized value", fontsize=5.7)
+            else:
+                ax.tick_params(axis="x", labelbottom=False)
+
+            ax.set_xlim(x_low - axis_pad, x_high + axis_pad)
+            ax.grid(axis="y", color="#D9D9D9", linewidth=0.45, alpha=0.45)
+            ax.tick_params(labelsize=4.8, width=0.6, length=2.0, pad=1.0)
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.65)
+                spine.set_color("#555555")
+
+    fig.subplots_adjust(
+        left=0.105,
+        right=0.992,
+        top=0.955,
+        bottom=0.075,
+        wspace=0.08,
+        hspace=0.12,
+    )
+    return apply_notebook_figure_style(fig)
+
+
 def compute_noise_sensitivity(
     datasets,
     cohorts,
