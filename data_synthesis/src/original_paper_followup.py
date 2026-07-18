@@ -1471,6 +1471,115 @@ def plot_noise_sensitivity(table):
     return apply_notebook_figure_style(fig)
 
 
+def plot_noise_sensitivity_supplement_table(
+    table,
+    dataset_order=None,
+    method_order=None,
+):
+    """Render noise sensitivity as a standalone A4 supplementary table."""
+    dataset_order = list(dataset_order or dict.fromkeys(table["dataset"]))
+    method_order = [
+        method
+        for method in (method_order or METHOD_ORDER)
+        if method in set(table["method"])
+    ]
+    required = {"dataset", "method", "sigma", "sep_mean", "sep_sd"}
+    missing = required - set(table.columns)
+    if missing:
+        raise ValueError(f"Noise table is missing columns: {sorted(missing)}")
+    if not dataset_order or not method_order:
+        raise ValueError("Noise table must contain at least one dataset and method.")
+
+    # The reciprocal dimensions finish at true A4 portrait after application
+    # of the shared notebook size multiplier.
+    fig, axes = plt.subplots(
+        len(dataset_order),
+        1,
+        figsize=(8.27 / 1.18, 11.69 / 1.18),
+        squeeze=False,
+    )
+    axes = axes.ravel()
+    display_names = {"GMM-guided SMOTE": "GMM-SMOTE"}
+    column_labels = [r"Noise $\sigma$"] + [
+        display_names.get(method, method) for method in method_order
+    ]
+
+    for dataset_index, (ax, dataset) in enumerate(zip(axes, dataset_order)):
+        ax.axis("off")
+        subset = table[table["dataset"] == dataset]
+        sigma_values = sorted(subset["sigma"].dropna().unique())
+        cell_text = []
+        for sigma in sigma_values:
+            row = [f"{float(sigma):g}"]
+            for method in method_order:
+                values = subset.loc[
+                    (subset["method"] == method) & (subset["sigma"] == sigma)
+                ]
+                if values.empty:
+                    row.append("--")
+                else:
+                    mean = float(values["sep_mean"].iloc[0])
+                    sd = float(values["sep_sd"].iloc[0])
+                    row.append(f"{mean:.3f} ± {sd:.3f}")
+            cell_text.append(row)
+
+        ax.text(
+            0.0,
+            0.98,
+            dataset,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10.0,
+            weight="bold",
+            color=DATASET_COLORS.get(dataset, "#222222"),
+        )
+        table_artist = ax.table(
+            cellText=cell_text,
+            colLabels=column_labels,
+            cellLoc="center",
+            colLoc="center",
+            colWidths=[0.09] + [0.151] * len(method_order),
+            bbox=[0.0, 0.015, 1.0, 0.86],
+        )
+        table_artist.auto_set_font_size(False)
+        table_artist.set_fontsize(6.2)
+        for (row_index, col_index), cell in table_artist.get_celld().items():
+            cell.set_edgecolor("#B8BDC3")
+            cell.set_linewidth(0.55)
+            if row_index == 0:
+                cell.set_facecolor("#E9ECEF")
+                cell.get_text().set_weight("bold")
+                if col_index > 0:
+                    cell.get_text().set_color(
+                        METHOD_COLORS.get(method_order[col_index - 1], "#222222")
+                    )
+            elif row_index % 2 == 0:
+                cell.set_facecolor("#F7F7F7")
+            else:
+                cell.set_facecolor("white")
+        ax.text(
+            -0.035,
+            0.98,
+            PANEL_LABELS[dataset_index],
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=11.0,
+            weight="bold",
+            color="#111111",
+        )
+
+    fig.subplots_adjust(
+        left=0.055,
+        right=0.985,
+        top=0.985,
+        bottom=0.025,
+        hspace=0.12,
+    )
+    return apply_notebook_figure_style(fig)
+
+
 def compute_reverse_ablation(datasets, cohorts, repeats=3, seed=42):
     rows = []
     for dataset, method_data in cohorts.items():
