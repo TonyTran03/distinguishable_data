@@ -1471,112 +1471,75 @@ def plot_noise_sensitivity(table):
     return apply_notebook_figure_style(fig)
 
 
-def plot_noise_sensitivity_supplement_table(
-    table,
-    dataset_order=None,
+def plot_hiv_noise_sensitivity_supplement(
+    noise_table,
+    dataset="HIV",
     method_order=None,
 ):
-    """Render noise sensitivity as a standalone A4 supplementary table."""
-    dataset_order = list(dataset_order or dict.fromkeys(table["dataset"]))
+    """Render E2's HIV noise-sensitivity panel as an A4 supplement page."""
     method_order = [
         method
         for method in (method_order or METHOD_ORDER)
-        if method in set(table["method"])
+        if method in set(noise_table["method"])
     ]
-    required = {"dataset", "method", "sigma", "sep_mean", "sep_sd"}
-    missing = required - set(table.columns)
-    if missing:
-        raise ValueError(f"Noise table is missing columns: {sorted(missing)}")
-    if not dataset_order or not method_order:
-        raise ValueError("Noise table must contain at least one dataset and method.")
+    if len(method_order) != 6:
+        raise ValueError(
+            "The HIV noise-sensitivity supplement requires all six methods."
+        )
 
-    # The reciprocal dimensions finish at true A4 portrait after application
-    # of the shared notebook size multiplier.
-    fig, axes = plt.subplots(
-        len(dataset_order),
-        1,
-        figsize=(8.27 / 1.18, 11.69 / 1.18),
-        squeeze=False,
-    )
-    axes = axes.ravel()
+    # The reciprocal dimensions finish at true A4 landscape after the shared
+    # notebook style applies its 1.18 figure-size multiplier.
+    fig, ax = plt.subplots(figsize=(11.69 / 1.18, 8.27 / 1.18))
     display_names = {"GMM-guided SMOTE": "GMM-SMOTE"}
-    column_labels = [r"Noise $\sigma$"] + [
-        display_names.get(method, method) for method in method_order
-    ]
-
-    for dataset_index, (ax, dataset) in enumerate(zip(axes, dataset_order)):
-        ax.axis("off")
-        subset = table[table["dataset"] == dataset]
-        sigma_values = sorted(subset["sigma"].dropna().unique())
-        cell_text = []
-        for sigma in sigma_values:
-            row = [f"{float(sigma):g}"]
-            for method in method_order:
-                values = subset.loc[
-                    (subset["method"] == method) & (subset["sigma"] == sigma)
-                ]
-                if values.empty:
-                    row.append("--")
-                else:
-                    mean = float(values["sep_mean"].iloc[0])
-                    sd = float(values["sep_sd"].iloc[0])
-                    row.append(f"{mean:.3f} ± {sd:.3f}")
-            cell_text.append(row)
-
-        ax.text(
-            0.0,
-            0.98,
-            dataset,
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=10.0,
-            weight="bold",
-            color=DATASET_COLORS.get(dataset, "#222222"),
+    for method in method_order:
+        values = noise_table.query(
+            "dataset == @dataset and method == @method"
+        ).sort_values("sigma")
+        if values.empty:
+            continue
+        color = METHOD_COLORS[method]
+        ax.plot(
+            values["sigma"],
+            values["sep_mean"],
+            color=color,
+            marker="o",
+            markersize=4.2,
+            linewidth=1.8,
+            label=display_names.get(method, method),
         )
-        table_artist = ax.table(
-            cellText=cell_text,
-            colLabels=column_labels,
-            cellLoc="center",
-            colLoc="center",
-            colWidths=[0.09] + [0.151] * len(method_order),
-            bbox=[0.0, 0.015, 1.0, 0.86],
-        )
-        table_artist.auto_set_font_size(False)
-        table_artist.set_fontsize(6.2)
-        for (row_index, col_index), cell in table_artist.get_celld().items():
-            cell.set_edgecolor("#B8BDC3")
-            cell.set_linewidth(0.55)
-            if row_index == 0:
-                cell.set_facecolor("#E9ECEF")
-                cell.get_text().set_weight("bold")
-                if col_index > 0:
-                    cell.get_text().set_color(
-                        METHOD_COLORS.get(method_order[col_index - 1], "#222222")
-                    )
-            elif row_index % 2 == 0:
-                cell.set_facecolor("#F7F7F7")
-            else:
-                cell.set_facecolor("white")
-        ax.text(
-            -0.035,
-            0.98,
-            PANEL_LABELS[dataset_index],
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=11.0,
-            weight="bold",
-            color="#111111",
-        )
+        if "sep_sd" in values:
+            lower = np.clip(values["sep_mean"] - values["sep_sd"], 0.0, 1.0)
+            upper = np.clip(values["sep_mean"] + values["sep_sd"], 0.0, 1.0)
+            ax.fill_between(
+                values["sigma"],
+                lower,
+                upper,
+                color=color,
+                alpha=0.14,
+                linewidth=0,
+            )
 
-    fig.subplots_adjust(
-        left=0.055,
-        right=0.985,
-        top=0.985,
-        bottom=0.025,
-        hspace=0.12,
+    ax.axhline(0.5, color="#777777", linestyle="--", linewidth=1.15)
+    ax.set_xlim(left=0.0)
+    ax.set_ylim(0.45, 1.02)
+    ax.set_xlabel(r"Noise level $\sigma$", fontsize=11.0)
+    ax.set_ylabel("Origin-classification AUC", fontsize=11.0)
+    ax.tick_params(axis="both", labelsize=9.0, direction="out")
+    ax.grid(axis="y", color="#D8D8D8", linewidth=0.75, alpha=0.65)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(
+        loc="lower right",
+        frameon=True,
+        facecolor="white",
+        edgecolor="#C8CDD2",
+        framealpha=0.92,
+        fontsize=8.2,
+        ncol=2,
+        columnspacing=1.0,
+        handlelength=2.0,
     )
+    fig.subplots_adjust(left=0.10, right=0.985, top=0.965, bottom=0.10)
     return apply_notebook_figure_style(fig)
 
 
