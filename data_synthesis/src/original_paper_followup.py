@@ -1530,10 +1530,7 @@ def plot_hiv_noise_sensitivity_supplement(
     ax.spines["right"].set_visible(False)
     ax.legend(
         loc="lower right",
-        frameon=True,
-        facecolor="white",
-        edgecolor="#C8CDD2",
-        framealpha=0.92,
+        frameon=False,
         fontsize=8.2,
         ncol=2,
         columnspacing=1.0,
