@@ -1278,12 +1278,12 @@ def plot_hiv_marginal_overlap_supplement(
     if not ranked_features:
         raise ValueError(f"No marginal-test results are available for {dataset!r}.")
 
-    # The reciprocal dimensions finish at true A4 landscape after the shared
+    # The reciprocal dimensions finish at true A4 portrait after the shared
     # notebook style applies its 1.18 figure-size multiplier.
     fig, axes = plt.subplots(
         len(ranked_features),
         len(method_order),
-        figsize=(11.69 / 1.18, 8.27 / 1.18),
+        figsize=(8.27 / 1.18, 11.69 / 1.18),
         squeeze=False,
         sharex="row",
         sharey="row",
@@ -1381,9 +1381,14 @@ def plot_hiv_marginal_overlap_supplement(
                 ax.set_title(method, fontsize=7.3, weight="semibold", pad=4.0)
             if col == 0:
                 feature_label = str(feature).replace("_", " ")
-                if len(feature_label) > 25:
-                    feature_label = feature_label[:22] + "..."
-                ax.set_ylabel(feature_label, fontsize=5.5, weight="semibold")
+                if len(feature_label) > 21:
+                    feature_label = feature_label[:18] + "..."
+                ax.set_ylabel(
+                    feature_label,
+                    fontsize=3.8,
+                    weight="semibold",
+                    labelpad=2.0,
+                )
             else:
                 ax.tick_params(axis="y", labelleft=False)
             if row == len(ranked_features) - 1:
@@ -1399,11 +1404,11 @@ def plot_hiv_marginal_overlap_supplement(
                 spine.set_color("#555555")
 
     fig.subplots_adjust(
-        left=0.105,
-        right=0.992,
+        left=0.072,
+        right=0.998,
         top=0.955,
         bottom=0.075,
-        wspace=0.08,
+        wspace=0.035,
         hspace=0.12,
     )
     return apply_notebook_figure_style(fig)
@@ -1523,13 +1528,13 @@ def plot_hiv_noise_sensitivity_supplement(
     ax.set_xlim(left=0.0)
     ax.set_ylim(0.45, 1.02)
     ax.set_xlabel(r"Noise level $\sigma$", fontsize=11.0)
-    ax.set_ylabel("Origin-classification AUC", fontsize=11.0)
+    ax.set_ylabel(r"$\langle\mathrm{AUC}\rangle$", fontsize=11.0)
     ax.tick_params(axis="both", labelsize=9.0, direction="out")
     ax.grid(axis="y", color="#D8D8D8", linewidth=0.75, alpha=0.65)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.legend(
-        loc="lower right",
+        loc="center right",
         frameon=False,
         fontsize=8.2,
         ncol=2,
