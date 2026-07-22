@@ -16,6 +16,8 @@ from matplotlib.ticker import MaxNLocator
 from scipy.stats import ttest_ind
 from sklearn.covariance import graphical_lasso
 from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
 
 from models.bootstrap import sample_bootstrap
 from models.cvae import sample_cvae
@@ -168,6 +170,110 @@ def generate_cohorts(
                 wgan_epochs=wgan_epochs,
             )
     return cohorts
+
+
+def estimate_gmm_components(
+    datasets,
+    component_counts=(2, 3, 4, 5),
+    covariance_type="full",
+    seed=42,
+):
+    """Compare per-class GMM component counts using AIC and BIC.
+
+    Candidate counts default to K = 2, 3, 4, 5 to match the cited paper.
+    Features are standardized before fitting so variables with large numeric
+    ranges do not dominate optimization.  AIC and BIC are minimized
+    independently because the two criteria need not select the same K.
+    """
+    rows = []
+    for dataset, data in datasets.items():
+        X = np.asarray(data["X"], dtype=float)
+        y = np.asarray(data["y"], dtype=int)
+        for class_label in np.unique(y):
+            values = X[y == class_label]
+            scaled = StandardScaler().fit_transform(values)
+            fits = []
+            for n_components in component_counts:
+                if n_components > len(values) // 2:
+                    continue
+                model = GaussianMixture(
+                    n_components=int(n_components),
+                    covariance_type=covariance_type,
+                    reg_covar=1e-4,
+                    n_init=5,
+                    random_state=seed,
+                ).fit(scaled)
+                fits.append(
+                    (int(n_components), float(model.aic(scaled)), float(model.bic(scaled)))
+                )
+            best_aic_components = min(fits, key=lambda item: item[1])[0]
+            best_bic_components = min(fits, key=lambda item: item[2])[0]
+            for n_components, aic, bic in fits:
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "class": int(class_label),
+                        "n_samples": len(values),
+                        "n_components": n_components,
+                        "AIC": aic,
+                        "BIC": bic,
+                        "AIC_minimum": n_components == best_aic_components,
+                        "BIC_minimum": n_components == best_bic_components,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def format_gmm_component_table(component_criteria):
+    """Return one manuscript-friendly row per dataset and class."""
+    index_columns = ["dataset", "class", "n_samples"]
+    aic_table = component_criteria.pivot_table(
+        index=index_columns,
+        columns="n_components",
+        values="AIC",
+        aggfunc="first",
+    ).reset_index()
+    bic_table = component_criteria.pivot_table(
+        index=["dataset", "class", "n_samples"],
+        columns="n_components",
+        values="BIC",
+        aggfunc="first",
+    ).reset_index()
+    component_columns = sorted(
+        column for column in bic_table.columns if isinstance(column, (int, np.integer))
+    )
+    aic_table = aic_table.rename(
+        columns={column: f"AIC (K={column})" for column in component_columns}
+    )
+    bic_table = bic_table.rename(
+        columns={column: f"BIC (K={column})" for column in component_columns}
+    )
+    selected_aic = (
+        component_criteria.loc[
+            component_criteria["AIC_minimum"],
+            ["dataset", "class", "n_components"],
+        ]
+        .rename(columns={"n_components": "AIC-selected K"})
+    )
+    selected_bic = (
+        component_criteria.loc[
+            component_criteria["BIC_minimum"],
+            ["dataset", "class", "n_components"],
+        ]
+        .rename(columns={"n_components": "BIC-selected K"})
+    )
+    table = aic_table.merge(bic_table, on=index_columns)
+    table = table.merge(selected_aic, on=["dataset", "class"])
+    table = table.merge(selected_bic, on=["dataset", "class"])
+    table["criteria agree"] = table["AIC-selected K"] == table["BIC-selected K"]
+    ordered_aic = [f"AIC (K={column})" for column in component_columns]
+    ordered_bic = [f"BIC (K={column})" for column in component_columns]
+    return table[
+        index_columns
+        + ordered_aic
+        + ordered_bic
+        + ["AIC-selected K", "BIC-selected K", "criteria agree"]
+    ]
 
 
 def compute_origin_auc(datasets, cohorts, repeats=5, seed=42):
