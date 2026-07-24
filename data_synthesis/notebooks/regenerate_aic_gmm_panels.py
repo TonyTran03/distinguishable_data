@@ -18,7 +18,7 @@ PKG_ROOT = REPO_ROOT / "data_synthesis"
 if str(PKG_ROOT) not in sys.path:
     sys.path.insert(0, str(PKG_ROOT))
 
-from models.gmm import AIC_COMPONENTS_BY_DATASET
+from models.gmm import AIC_COMPONENTS_BY_DATASET, BIC_COMPONENTS_BY_DATASET, sample_gmm
 from src import original_paper_followup as followup
 from src.revision import data_io
 from src.revision.common import DATASET_COLORS, add_confidence_ellipse, standardize_pair
@@ -51,17 +51,30 @@ def replace_method_rows(base, replacement, method="GMM"):
     )
 
 
-def build_aic_cohorts(datasets):
+def build_selected_gmm_cohorts(datasets, components_by_dataset):
     cohorts = copy.deepcopy(load_cache("cohorts"))
     for dataset, data in datasets.items():
-        cohorts[dataset]["GMM"] = followup.sample_method(
-            np.asarray(data["X"], dtype=np.float32),
-            np.asarray(data["y"], dtype=int),
-            "GMM",
+        X = np.asarray(data["X"], dtype=np.float32)
+        y = np.asarray(data["y"], dtype=int)
+        n0 = int(np.sum(y == 0))
+        n1 = int(np.sum(y == 1))
+        cohorts[dataset]["GMM"] = sample_gmm(
+            X,
+            y,
+            n0,
+            n1,
             seed=GMM_SEED,
-            dataset=dataset,
+            n_components=components_by_dataset[dataset],
         )
     return cohorts
+
+
+def build_aic_cohorts(datasets):
+    return build_selected_gmm_cohorts(datasets, AIC_COMPONENTS_BY_DATASET)
+
+
+def build_bic_cohorts(datasets):
+    return build_selected_gmm_cohorts(datasets, BIC_COMPONENTS_BY_DATASET)
 
 
 def plot_pca_rf_overview(datasets, cohorts, auc_runs):

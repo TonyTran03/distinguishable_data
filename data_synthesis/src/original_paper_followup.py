@@ -1777,7 +1777,7 @@ def paired_origin_auc(X_real, X_perturbed, y, seed=42):
 
 def compute_dependence_permutation_sensitivity(
     datasets,
-    proportions=(0.0, 0.10, 0.25, 0.50, 0.75, 1.0),
+    proportions=tuple(np.linspace(0.0, 1.0, 11)),
     repeats=10,
     seed=42,
     alphas=None,
@@ -1853,66 +1853,127 @@ def compute_dependence_permutation_sensitivity(
 
 
 def plot_dependence_permutation_sensitivity(table, dataset_order=None):
-    """Plot discriminator AUC and real-edge recovery side by side."""
+    """Overlay the AUC trend on the area under the edge-recovery curve."""
     dataset_order = list(dataset_order or dict.fromkeys(table["dataset"]))
-    summary = (
-        table.groupby(["dataset", "percent_permuted"], sort=False)
-        .agg(
-            auc_mean=("discriminator_auc", "mean"),
-            auc_sd=("discriminator_auc", "std"),
-            recovery_mean=("edge_recovery", "mean"),
-            recovery_sd=("edge_recovery", "std"),
-        )
-        .reset_index()
+    perturbation_levels = sorted(table["percent_permuted"].unique())
+    positions = np.asarray(perturbation_levels, dtype=float)
+
+    # Both metrics retain their original 0--1 values. The recovery area shows
+    # remaining structure, while the AUC line shows distinguishability.
+    fig, axes = plt.subplots(
+        len(dataset_order),
+        1,
+        figsize=(8.0 / 1.18, 9.2 / 1.18),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
     )
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.4 / 1.18, 4.6 / 1.18), sharex=True)
-    panel_specs = [
-        ("auc_mean", "auc_sd", "Discriminator AUC"),
-        ("recovery_mean", "recovery_sd", "Edge recovery"),
-    ]
-    for ax, (mean_column, sd_column, ylabel) in zip(axes, panel_specs):
-        for dataset in dataset_order:
-            values = summary.loc[summary["dataset"].eq(dataset)].sort_values(
-                "percent_permuted"
-            )
-            x = values["percent_permuted"].to_numpy(dtype=float)
-            mean = values[mean_column].to_numpy(dtype=float)
-            sd = values[sd_column].fillna(0.0).to_numpy(dtype=float)
-            color = DATASET_COLORS[dataset]
-            ax.plot(
-                x,
-                mean,
-                color=color,
-                marker="o",
-                markersize=4.0,
-                linewidth=1.8,
-                label=dataset,
-            )
-            ax.fill_between(
-                x,
-                np.clip(mean - sd, 0.0, 1.0),
-                np.clip(mean + sd, 0.0, 1.0),
-                color=color,
-                alpha=0.15,
-                linewidth=0,
-            )
+    for row, dataset in enumerate(dataset_order):
+        ax = axes[row, 0]
+        subset = table.loc[table["dataset"].eq(dataset)]
+        auc_summary = (
+            subset.groupby("percent_permuted", sort=False)["discriminator_auc"]
+            .agg(["mean", "std"])
+            .reindex(perturbation_levels)
+        )
+        auc_mean = auc_summary["mean"].to_numpy(dtype=float)
+        auc_sd = auc_summary["std"].fillna(0.0).to_numpy(dtype=float)
+        recovery_summary = (
+            subset.groupby("percent_permuted", sort=False)["edge_recovery"]
+            .agg(["mean", "std"])
+            .reindex(perturbation_levels)
+        )
+        recovery_mean = recovery_summary["mean"].to_numpy(dtype=float)
+        color = DATASET_COLORS[dataset]
 
-        ax.set_xlim(0.0, 100.0)
-        ax.set_xticks(sorted(summary["percent_permuted"].unique()))
-        ax.set_ylim(0.0 if mean_column == "recovery_mean" else 0.45, 1.02)
-        ax.set_xlabel("Proportion permuted (%)")
-        ax.set_ylabel(ylabel)
-        ax.grid(axis="y", color="#D8D8D8", linewidth=0.75, alpha=0.65)
+        ax.fill_between(
+            positions,
+            0.0,
+            recovery_mean,
+            color=color,
+            alpha=0.16,
+            linewidth=0,
+            zorder=1,
+        )
+        ax.plot(
+            positions,
+            recovery_mean,
+            color=color,
+            linestyle="-",
+            linewidth=1.15,
+            alpha=0.72,
+            zorder=3,
+        )
+        ax.errorbar(
+            positions,
+            auc_mean,
+            yerr=auc_sd,
+            color=color,
+            marker="o",
+            markerfacecolor=color,
+            markeredgecolor=color,
+            markeredgewidth=0.55,
+            markersize=4.6,
+            linewidth=2.0,
+            capsize=2.4,
+            elinewidth=0.9,
+            solid_capstyle="round",
+            solid_joinstyle="round",
+            clip_on=False,
+            zorder=4,
+        )
+
+        ax.axhline(0.5, color="#888888", linestyle="--", linewidth=0.9, zorder=0)
+        ax.set_xlim(0.0, float(max(perturbation_levels)))
+        ax.set_ylim(0.0, 1.02)
+        ax.set_xticks(positions)
+        ax.set_xticklabels([f"{level:g}" for level in perturbation_levels])
+        ax.set_title(dataset, color="#222222", fontsize=11.5, weight="bold", pad=7)
+        ax.set_axisbelow(True)
+        ax.grid(axis="y", color="#D8D8D8", linewidth=0.65, alpha=0.52)
+        ax.grid(axis="x", color="#E4E4E4", linewidth=0.65, alpha=0.62)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#666666")
+        ax.spines["bottom"].set_color("#666666")
+        ax.spines["left"].set_linewidth(0.95)
+        ax.spines["bottom"].set_linewidth(0.95)
+        ax.tick_params(axis="both", width=0.8, length=3.0)
+        if row == 1:
+            ax.set_ylabel("Metric value", fontsize=10.5, weight="semibold")
 
-    axes[0].axhline(0.5, color="#777777", linestyle="--", linewidth=1.0)
-    axes[0].legend(frameon=False, fontsize=8.0, loc="upper left")
-    for letter, ax in zip("AB", axes):
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color="#666666",
+            marker="o",
+            markerfacecolor="#666666",
+            markeredgecolor="#666666",
+            linewidth=1.75,
+            markersize=4.4,
+            label="AUC",
+        ),
+        Patch(
+            facecolor="#888888",
+            edgecolor="#888888",
+            alpha=0.20,
+            label="Edge recovery",
+        ),
+    ]
+    axes[-1, 0].legend(
+        handles=legend_handles,
+        frameon=False,
+        fontsize=8.0,
+        loc="lower left",
+        handlelength=1.7,
+        handletextpad=0.5,
+    )
+    for letter, ax in zip("ABC", axes[:, 0]):
         ax.text(
-            -0.13,
-            1.03,
+            -0.10,
+            1.05,
             letter,
             transform=ax.transAxes,
             fontsize=13,
@@ -1921,7 +1982,19 @@ def plot_dependence_permutation_sensitivity(table, dataset_order=None):
             va="bottom",
             clip_on=False,
         )
-    fig.subplots_adjust(left=0.09, right=0.985, top=0.94, bottom=0.18, wspace=0.28)
+    fig.supxlabel(
+        "Within-class permutation (%)",
+        fontsize=10.5,
+        weight="semibold",
+        y=0.025,
+    )
+    fig.subplots_adjust(
+        left=0.105,
+        right=0.985,
+        top=0.96,
+        bottom=0.09,
+        hspace=0.28,
+    )
     return apply_notebook_figure_style(fig)
 
 

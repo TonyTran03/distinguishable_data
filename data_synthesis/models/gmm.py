@@ -11,6 +11,13 @@ AIC_COMPONENTS_BY_DATASET = {
     "HIV": (2, 3),
 }
 
+# Class-specific component counts selected by minimum BIC over K = 2,...,5.
+BIC_COMPONENTS_BY_DATASET = {
+    "Breast Cancer": (2, 2),
+    "Diabetes": (4, 2),
+    "HIV": (2, 2),
+}
+
 
 def sample_gmm(
     X,
