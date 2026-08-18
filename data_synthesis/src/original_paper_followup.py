@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import math
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,12 +17,16 @@ from matplotlib.ticker import MaxNLocator
 from scipy.stats import ttest_ind
 from sklearn.covariance import graphical_lasso
 from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.metrics import roc_auc_score
 from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from models.bootstrap import sample_bootstrap
 from models.cvae import sample_cvae
-from models.gmm import sample_gmm
+from models.gmm import AIC_COMPONENTS_BY_DATASET, sample_gmm
 from models.iid_columnwise import sample_columnwise
 from models.smote import sample_gmm_guided_smote, sample_smote
 from models.wgan_gp import sample_wgan_gp
@@ -115,6 +120,7 @@ def sample_method(
     seed=42,
     cvae_epochs=50,
     wgan_epochs=50,
+    dataset=None,
 ):
     n0, n1 = class_counts(y)
     if method == "Bootstrap":
@@ -122,7 +128,8 @@ def sample_method(
     if method == "Column-wise":
         return sample_columnwise(X, y, n0, n1, seed=seed)
     if method == "GMM":
-        return sample_gmm(X, y, n0, n1, seed=seed)
+        components = AIC_COMPONENTS_BY_DATASET.get(dataset, 2)
+        return sample_gmm(X, y, n0, n1, seed=seed, n_components=components)
     if method == "SMOTE":
         return sample_smote(X, y, n0, n1, seed=seed)
     if method == "GMM-guided SMOTE":
@@ -168,6 +175,7 @@ def generate_cohorts(
                 seed=seed + 101 * offset,
                 cvae_epochs=cvae_epochs,
                 wgan_epochs=wgan_epochs,
+                dataset=dataset,
             )
     return cohorts
 
@@ -851,6 +859,43 @@ def compute_metric_table(
     return pd.DataFrame(rows)
 
 
+def _fixed_real_pca_payloads(X_real, method_data, methods, seed=42):
+    """Project every method onto one PCA basis fitted to standardized real data.
+
+    The returned real and synthetic percentages are variance fractions measured
+    within each dataset along the fixed real-data loading vectors. Thus the
+    coordinates remain directly comparable while the displayed percentages can
+    differ by method.
+    """
+    X_real = np.asarray(X_real, dtype=np.float64)
+    Xr, _ = standardize_pair(X_real, X_real)
+    pca = PCA(n_components=2, random_state=seed).fit(Xr)
+    Zr = pca.transform(Xr)
+
+    def projected_ratios(X_standardized, coordinates):
+        total_variance = float(
+            np.sum(np.var(X_standardized, axis=0, ddof=1))
+        )
+        if not np.isfinite(total_variance) or total_variance <= 0.0:
+            return np.full(coordinates.shape[1], np.nan, dtype=float)
+        return np.var(coordinates, axis=0, ddof=1) / total_variance
+
+    real_ratios = projected_ratios(Xr, Zr)
+    payloads = {}
+    for method in methods:
+        X_syn = np.asarray(method_data[method][0], dtype=np.float64)
+        _, Xs = standardize_pair(X_real, X_syn)
+        Zs = pca.transform(Xs)
+        synthetic_ratios = projected_ratios(Xs, Zs)
+        payloads[method] = (Zr, Zs, real_ratios, synthetic_ratios)
+    return payloads
+
+
+def _fixed_pca_axis_label(component, synthetic_ratio):
+    """Label a fixed real-data PC direction by synthetic projected variance."""
+    return f"PC{component + 1} ({100 * synthetic_ratio:.1f}%)"
+
+
 def plot_pca_grid(datasets, cohorts, dataset):
     methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
     columns = 3
@@ -863,12 +908,21 @@ def plot_pca_grid(datasets, cohorts, dataset):
     )
     axes = np.atleast_1d(axes).ravel()
     X_real = np.asarray(datasets[dataset]["X"])
+    payloads = _fixed_real_pca_payloads(
+        X_real, cohorts[dataset], methods, seed=42
+    )
+    combined = np.vstack(
+        [coordinates for method in methods for coordinates in payloads[method][:2]]
+    )
+    x_min, y_min = np.nanmin(combined, axis=0)
+    x_max, y_max = np.nanmax(combined, axis=0)
+    x_pad = max((x_max - x_min) * 0.08, 0.5)
+    y_pad = max((y_max - y_min) * 0.08, 0.5)
+    x_limits = (x_min - x_pad, x_max + x_pad)
+    y_limits = (y_min - y_pad, y_max + y_pad)
 
     for ax, method in zip(axes, methods):
-        X_syn = cohorts[dataset][method][0]
-        Xr, Xs = standardize_pair(X_real, X_syn)
-        pca = PCA(n_components=2, random_state=42).fit(Xr)
-        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        Zr, Zs, real_ratio, synthetic_ratio = payloads[method]
         ax.scatter(
             Zr[:, 0], Zr[:, 1], s=8, facecolors="none",
             edgecolors="#777777", linewidths=0.8, alpha=0.55, label="Real",
@@ -899,14 +953,16 @@ def plot_pca_grid(datasets, cohorts, dataset):
             pad=5.0,
         )
         ax.set_xlabel(
-            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)",
+            _fixed_pca_axis_label(0, synthetic_ratio[0]),
             fontsize=9.0,
         )
         ax.set_ylabel(
-            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)",
+            _fixed_pca_axis_label(1, synthetic_ratio[1]),
             fontsize=9.0,
         )
         ax.tick_params(axis="both", labelsize=8.0, direction="out")
+        ax.set_xlim(*x_limits)
+        ax.set_ylim(*y_limits)
         ax.legend(
             frameon=False,
             fontsize=8.5,
@@ -981,14 +1037,12 @@ def plot_pca_all_datasets_a4(
         )
 
         X_real = np.asarray(datasets[dataset]["X"])
-        payloads = {}
+        payloads = _fixed_real_pca_payloads(
+            X_real, cohorts[dataset], methods, seed=42
+        )
         all_coordinates = []
         for method in methods:
-            X_syn = cohorts[dataset][method][0]
-            Xr, Xs = standardize_pair(X_real, X_syn)
-            pca = PCA(n_components=2, random_state=42).fit(Xr)
-            Zr, Zs = pca.transform(Xr), pca.transform(Xs)
-            payloads[method] = (Zr, Zs, pca.explained_variance_ratio_)
+            Zr, Zs, _, _ = payloads[method]
             all_coordinates.extend((Zr, Zs))
 
         combined = np.vstack(all_coordinates)
@@ -1002,7 +1056,7 @@ def plot_pca_all_datasets_a4(
         for method_index, method in enumerate(methods):
             row, col = divmod(method_index, 3)
             ax = fig.add_subplot(section[row + 1, col])
-            Zr, Zs, explained_variance = payloads[method]
+            Zr, Zs, real_ratio, synthetic_ratio = payloads[method]
             method_label = display_names.get(method, method)
 
             ax.scatter(
@@ -1047,7 +1101,7 @@ def plot_pca_all_datasets_a4(
             )
             if row == 1:
                 ax.set_xlabel(
-                    f"PC1 ({explained_variance[0] * 100:.1f}%)",
+                    _fixed_pca_axis_label(0, synthetic_ratio[0]),
                     fontsize=6.3,
                     labelpad=1.5,
                 )
@@ -1055,7 +1109,7 @@ def plot_pca_all_datasets_a4(
                 ax.set_xlabel("")
             if col == 0:
                 ax.set_ylabel(
-                    f"PC2 ({explained_variance[1] * 100:.1f}%)",
+                    _fixed_pca_axis_label(1, synthetic_ratio[1]),
                     fontsize=6.3,
                     labelpad=1.5,
                 )
@@ -1651,6 +1705,226 @@ def plot_hiv_noise_sensitivity_supplement(
     return apply_notebook_figure_style(fig)
 
 
+def permute_class_conditional_dependence(X, y, proportion, seed=42):
+    """Partially break cross-feature alignment without changing marginals.
+
+    Within each outcome class and feature, ``proportion`` of row positions are
+    selected and the values occupying those positions are randomly permuted.
+    Consequently, every class-conditional feature contains exactly the same
+    multiset of values before and after perturbation.
+    """
+    if not 0.0 <= float(proportion) <= 1.0:
+        raise ValueError("proportion must be between 0 and 1")
+
+    X = np.asarray(X)
+    y = np.asarray(y)
+    perturbed = X.copy()
+    if float(proportion) == 0.0:
+        return perturbed
+
+    rng = np.random.default_rng(seed)
+    for outcome in np.unique(y):
+        class_indices = np.flatnonzero(y == outcome)
+        n_selected = int(np.rint(float(proportion) * len(class_indices)))
+        if n_selected < 2:
+            continue
+        for feature_index in range(X.shape[1]):
+            selected = rng.choice(class_indices, size=n_selected, replace=False)
+            perturbed[selected, feature_index] = perturbed[
+                rng.permutation(selected), feature_index
+            ]
+    return perturbed
+
+
+def paired_origin_auc(X_real, X_perturbed, y, seed=42):
+    """Origin AUC with matched row pairs kept in the same data split."""
+    X_real = np.asarray(X_real, dtype=np.float64)
+    X_perturbed = np.asarray(X_perturbed, dtype=np.float64)
+    y = np.asarray(y, dtype=int)
+    if X_real.shape != X_perturbed.shape or len(y) != len(X_real):
+        raise ValueError("real, perturbed, and outcome arrays must align by row")
+
+    row_indices = np.arange(len(y))
+    train_indices, test_indices = train_test_split(
+        row_indices,
+        test_size=0.25,
+        stratify=y,
+        random_state=seed,
+    )
+    Xr, Xp = standardize_pair(X_real, X_perturbed)
+    X_train = np.vstack((Xr[train_indices], Xp[train_indices]))
+    origin_train = np.r_[
+        np.zeros(len(train_indices), dtype=int),
+        np.ones(len(train_indices), dtype=int),
+    ]
+    X_test = np.vstack((Xr[test_indices], Xp[test_indices]))
+    origin_test = np.r_[
+        np.zeros(len(test_indices), dtype=int),
+        np.ones(len(test_indices), dtype=int),
+    ]
+    discriminator = RandomForestClassifier(
+        n_estimators=500,
+        random_state=seed,
+        class_weight="balanced",
+        n_jobs=-1,
+    )
+    discriminator.fit(X_train, origin_train)
+    auc = roc_auc_score(
+        origin_test, discriminator.predict_proba(X_test)[:, 1]
+    )
+    return float(max(auc, 1.0 - auc))
+
+
+def compute_dependence_permutation_sensitivity(
+    datasets,
+    proportions=(0.0, 0.10, 0.25, 0.50, 0.75, 1.0),
+    repeats=10,
+    seed=42,
+    alphas=None,
+    edge_threshold=1e-7,
+):
+    """Measure separability and edge preservation after marginal-safe shuffling."""
+    proportions = tuple(float(value) for value in proportions)
+    if not proportions or any(value < 0.0 or value > 1.0 for value in proportions):
+        raise ValueError("proportions must contain values between 0 and 1")
+    if int(repeats) < 2:
+        raise ValueError("repeats must be at least 2 to estimate uncertainty")
+
+    selected_alphas = dict(FIGURE4_ALPHAS)
+    if alphas is not None:
+        selected_alphas.update(alphas)
+
+    rows = []
+    for dataset_index, (dataset, data) in enumerate(datasets.items()):
+        X_real = np.asarray(data["X"], dtype=np.float64)
+        y_real = np.asarray(data["y"], dtype=int)
+        alpha = float(selected_alphas[dataset])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            real_precision = fit_glasso_precision(X_real, alpha)
+        real_partial = precision_to_partial_corr(real_precision)
+        real_edges = get_edge_set(real_partial, threshold=edge_threshold)
+
+        for level_index, proportion in enumerate(proportions):
+            for repeat in range(int(repeats)):
+                run_seed = (
+                    int(seed)
+                    + 100_003 * dataset_index
+                    + 10_007 * level_index
+                    + 1_009 * repeat
+                )
+                X_perturbed = permute_class_conditional_dependence(
+                    X_real, y_real, proportion, seed=run_seed
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", ConvergenceWarning)
+                    perturbed_precision = fit_glasso_precision(X_perturbed, alpha)
+                perturbed_partial = precision_to_partial_corr(perturbed_precision)
+                perturbed_edges = get_edge_set(
+                    perturbed_partial, threshold=edge_threshold
+                )
+                edge_union = real_edges | perturbed_edges
+                edge_jaccard = (
+                    len(real_edges & perturbed_edges) / len(edge_union)
+                    if edge_union
+                    else 1.0
+                )
+                edge_recovery = compute_edge_recovery(
+                    real_edges, perturbed_edges
+                )
+                discriminator_auc = paired_origin_auc(
+                    X_real, X_perturbed, y_real, seed=run_seed + 503
+                )
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "proportion_permuted": proportion,
+                        "percent_permuted": 100.0 * proportion,
+                        "repeat": repeat,
+                        "discriminator_auc": discriminator_auc,
+                        "edge_jaccard": float(edge_jaccard),
+                        "edge_recovery": float(edge_recovery),
+                        "n_real_edges": len(real_edges),
+                        "n_perturbed_edges": len(perturbed_edges),
+                        "glasso_alpha": alpha,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def plot_dependence_permutation_sensitivity(table, dataset_order=None):
+    """Plot discriminator AUC and real-edge recovery side by side."""
+    dataset_order = list(dataset_order or dict.fromkeys(table["dataset"]))
+    summary = (
+        table.groupby(["dataset", "percent_permuted"], sort=False)
+        .agg(
+            auc_mean=("discriminator_auc", "mean"),
+            auc_sd=("discriminator_auc", "std"),
+            recovery_mean=("edge_recovery", "mean"),
+            recovery_sd=("edge_recovery", "std"),
+        )
+        .reset_index()
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(11.4 / 1.18, 4.6 / 1.18), sharex=True)
+    panel_specs = [
+        ("auc_mean", "auc_sd", "Discriminator AUC"),
+        ("recovery_mean", "recovery_sd", "Edge recovery"),
+    ]
+    for ax, (mean_column, sd_column, ylabel) in zip(axes, panel_specs):
+        for dataset in dataset_order:
+            values = summary.loc[summary["dataset"].eq(dataset)].sort_values(
+                "percent_permuted"
+            )
+            x = values["percent_permuted"].to_numpy(dtype=float)
+            mean = values[mean_column].to_numpy(dtype=float)
+            sd = values[sd_column].fillna(0.0).to_numpy(dtype=float)
+            color = DATASET_COLORS[dataset]
+            ax.plot(
+                x,
+                mean,
+                color=color,
+                marker="o",
+                markersize=4.0,
+                linewidth=1.8,
+                label=dataset,
+            )
+            ax.fill_between(
+                x,
+                np.clip(mean - sd, 0.0, 1.0),
+                np.clip(mean + sd, 0.0, 1.0),
+                color=color,
+                alpha=0.15,
+                linewidth=0,
+            )
+
+        ax.set_xlim(0.0, 100.0)
+        ax.set_xticks(sorted(summary["percent_permuted"].unique()))
+        ax.set_ylim(0.0 if mean_column == "recovery_mean" else 0.45, 1.02)
+        ax.set_xlabel("Proportion permuted (%)")
+        ax.set_ylabel(ylabel)
+        ax.grid(axis="y", color="#D8D8D8", linewidth=0.75, alpha=0.65)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    axes[0].axhline(0.5, color="#777777", linestyle="--", linewidth=1.0)
+    axes[0].legend(frameon=False, fontsize=8.0, loc="upper left")
+    for letter, ax in zip("AB", axes):
+        ax.text(
+            -0.13,
+            1.03,
+            letter,
+            transform=ax.transAxes,
+            fontsize=13,
+            weight="bold",
+            ha="left",
+            va="bottom",
+            clip_on=False,
+        )
+    fig.subplots_adjust(left=0.09, right=0.985, top=0.94, bottom=0.18, wspace=0.28)
+    return apply_notebook_figure_style(fig)
+
+
 def compute_reverse_ablation(datasets, cohorts, repeats=3, seed=42):
     rows = []
     for dataset, method_data in cohorts.items():
@@ -1745,16 +2019,28 @@ def _plot_hiv_experimental_1_with_path(
     )
 
     # A: wide PCA comparison using the open 2 x 3 design.
-    pca_grid = outer[0].subgridspec(2, 3, wspace=0.24, hspace=0.42)
+    pca_grid = outer[0].subgridspec(2, 3, wspace=0.30, hspace=0.42)
     X_real = np.asarray(datasets[dataset]["X"])
+    pca_payloads = _fixed_real_pca_payloads(
+        X_real, cohorts[dataset], methods, seed=42
+    )
+    all_pca_coordinates = [
+        coordinates
+        for method in methods
+        for coordinates in pca_payloads[method][:2]
+    ]
+    combined_pca = np.vstack(all_pca_coordinates)
+    pca_x_min, pca_y_min = np.nanmin(combined_pca, axis=0)
+    pca_x_max, pca_y_max = np.nanmax(combined_pca, axis=0)
+    pca_x_pad = max((pca_x_max - pca_x_min) * 0.08, 0.5)
+    pca_y_pad = max((pca_y_max - pca_y_min) * 0.08, 0.5)
+    pca_x_limits = (pca_x_min - pca_x_pad, pca_x_max + pca_x_pad)
+    pca_y_limits = (pca_y_min - pca_y_pad, pca_y_max + pca_y_pad)
     pca_axes = []
     for index, method in enumerate(methods):
         ax = fig.add_subplot(pca_grid[index // 3, index % 3])
         pca_axes.append(ax)
-        X_syn = np.asarray(cohorts[dataset][method][0])
-        Xr, Xs = standardize_pair(X_real, X_syn)
-        pca = PCA(n_components=2, random_state=42).fit(Xr)
-        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        Zr, Zs, real_ratio, synthetic_ratio = pca_payloads[method]
         ax.scatter(
             Zr[:, 0],
             Zr[:, 1],
@@ -1784,15 +2070,17 @@ def _plot_hiv_experimental_1_with_path(
             pad=2.5,
         )
         ax.set_xlabel(
-            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)",
-            fontsize=5.8,
+            _fixed_pca_axis_label(0, synthetic_ratio[0]),
+            fontsize=5.2,
             labelpad=1.0,
         )
         ax.set_ylabel(
-            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)",
-            fontsize=5.8,
+            _fixed_pca_axis_label(1, synthetic_ratio[1]),
+            fontsize=5.2,
             labelpad=1.0,
         )
+        ax.set_xlim(*pca_x_limits)
+        ax.set_ylim(*pca_y_limits)
         ax.tick_params(axis="both", labelsize=5.2, length=2.0, pad=1.0)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
@@ -2007,16 +2295,16 @@ def plot_hiv_experimental_1(
     cohorts,
     ablation_table,
     edge_status,
-    dataset="HIV",
+    dataset="Breast Cancer",
 ):
     """Experimental 1: wide edge matrices above ablation and PCA."""
     methods = [method for method in METHOD_ORDER if method in cohorts[dataset]]
     structures = edge_status.structures[dataset]
-    fig = plt.figure(figsize=(8.27 / 1.18, 9.55 / 1.18), facecolor="white")
+    fig = plt.figure(figsize=(8.27 / 1.18, 10.15 / 1.18), facecolor="white")
     outer = fig.add_gridspec(
         2,
         1,
-        height_ratios=[1.35, 0.78],
+        height_ratios=[1.35, 0.86],
         left=0.055,
         right=0.995,
         top=0.965,
@@ -2089,7 +2377,7 @@ def plot_hiv_experimental_1(
         columnspacing=0.9,
     )
 
-    lower = outer[1].subgridspec(1, 2, width_ratios=[0.38, 0.62], wspace=0.18)
+    lower = outer[1].subgridspec(1, 2, width_ratios=[0.38, 0.62], wspace=0.27)
 
     # B: reverse ablation.
     ablation_ax = fig.add_subplot(lower[0, 0])
@@ -2129,17 +2417,30 @@ def plot_hiv_experimental_1(
     )
 
     # C: compact 2 x 3 PCA comparison.
-    pca_grid = lower[0, 1].subgridspec(2, 3, wspace=0.16, hspace=0.28)
+    pca_grid = lower[0, 1].subgridspec(2, 3, wspace=0.22, hspace=0.52)
     X_real = np.asarray(datasets[dataset]["X"])
+    pca_payloads = _fixed_real_pca_payloads(
+        X_real, cohorts[dataset], methods, seed=42
+    )
+    all_pca_coordinates = []
+    for method in methods:
+        Zr, Zs, _, _ = pca_payloads[method]
+        all_pca_coordinates.extend((Zr, Zs))
+
+    combined_pca = np.vstack(all_pca_coordinates)
+    pca_x_min, pca_y_min = np.nanmin(combined_pca, axis=0)
+    pca_x_max, pca_y_max = np.nanmax(combined_pca, axis=0)
+    pca_x_pad = max((pca_x_max - pca_x_min) * 0.08, 0.5)
+    pca_y_pad = max((pca_y_max - pca_y_min) * 0.08, 0.5)
+    pca_x_limits = (pca_x_min - pca_x_pad, pca_x_max + pca_x_pad)
+    pca_y_limits = (pca_y_min - pca_y_pad, pca_y_max + pca_y_pad)
+
     pca_axes = []
     for index, method in enumerate(methods):
         row, col = divmod(index, 3)
         ax = fig.add_subplot(pca_grid[row, col])
         pca_axes.append(ax)
-        X_syn = np.asarray(cohorts[dataset][method][0])
-        Xr, Xs = standardize_pair(X_real, X_syn)
-        pca = PCA(n_components=2, random_state=42).fit(Xr)
-        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        Zr, Zs, real_ratio, synthetic_ratio = pca_payloads[method]
         ax.scatter(
             Zr[:, 0], Zr[:, 1], s=3.2, facecolors="none",
             edgecolors="#777777", linewidths=0.4, alpha=0.45, label="Real",
@@ -2155,13 +2456,16 @@ def plot_hiv_experimental_1(
             color=METHOD_COLORS[method], fontsize=7, weight="bold", pad=1.5,
         )
         ax.set_xlabel(
-            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)" if row == 1 else "",
-            fontsize=6.5, labelpad=0.6,
+            _fixed_pca_axis_label(0, synthetic_ratio[0]),
+            fontsize=5.6, labelpad=0.6,
         )
         ax.set_ylabel(
-            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)" if col == 0 else "",
-            fontsize=6.5, labelpad=0.6,
+            _fixed_pca_axis_label(1, synthetic_ratio[1])
+            if col == 0 else "",
+            fontsize=5.6, labelpad=0.6,
         )
+        ax.set_xlim(*pca_x_limits)
+        ax.set_ylim(*pca_y_limits)
         ax.tick_params(axis="both", labelsize=3.9, length=1.4, pad=0.5)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=3))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
@@ -2489,23 +2793,36 @@ def plot_hiv_experimental_2(
         2,
         1,
         height_ratios=[1.16, 0.88],
-        left=0.075,
+        left=0.095,
         right=0.985,
         top=0.965,
         bottom=0.090,
         hspace=0.25,
     )
 
-    pca_grid = outer[0].subgridspec(2, 3, wspace=0.24, hspace=0.42)
+    pca_grid = outer[0].subgridspec(2, 3, wspace=0.32, hspace=0.42)
     X_real = np.asarray(datasets[dataset]["X"])
+    pca_payloads = _fixed_real_pca_payloads(
+        X_real, cohorts[dataset], methods, seed=42
+    )
+    all_pca_coordinates = []
+    for method in methods:
+        Zr, Zs, _, _ = pca_payloads[method]
+        all_pca_coordinates.extend((Zr, Zs))
+
+    combined_pca = np.vstack(all_pca_coordinates)
+    pca_x_min, pca_y_min = np.nanmin(combined_pca, axis=0)
+    pca_x_max, pca_y_max = np.nanmax(combined_pca, axis=0)
+    pca_x_pad = max((pca_x_max - pca_x_min) * 0.08, 0.5)
+    pca_y_pad = max((pca_y_max - pca_y_min) * 0.08, 0.5)
+    pca_x_limits = (pca_x_min - pca_x_pad, pca_x_max + pca_x_pad)
+    pca_y_limits = (pca_y_min - pca_y_pad, pca_y_max + pca_y_pad)
+
     pca_axes = []
     for index, method in enumerate(methods):
         ax = fig.add_subplot(pca_grid[index // 3, index % 3])
         pca_axes.append(ax)
-        X_syn = np.asarray(cohorts[dataset][method][0])
-        Xr, Xs = standardize_pair(X_real, X_syn)
-        pca = PCA(n_components=2, random_state=42).fit(Xr)
-        Zr, Zs = pca.transform(Xr), pca.transform(Xs)
+        Zr, Zs, real_ratio, synthetic_ratio = pca_payloads[method]
         ax.scatter(
             Zr[:, 0], Zr[:, 1], s=5.0, facecolors="none",
             edgecolors="#777777", linewidths=0.55, alpha=0.50, label="Real",
@@ -2521,13 +2838,15 @@ def plot_hiv_experimental_2(
             color=METHOD_COLORS[method], fontsize=7.5, weight="bold", pad=2.5,
         )
         ax.set_xlabel(
-            f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}%)",
-            fontsize=5.8, labelpad=1.0,
+            _fixed_pca_axis_label(0, synthetic_ratio[0]),
+            fontsize=5.2, labelpad=1.0,
         )
         ax.set_ylabel(
-            f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}%)",
-            fontsize=5.8, labelpad=1.0,
+            _fixed_pca_axis_label(1, synthetic_ratio[1]),
+            fontsize=5.2, labelpad=1.0,
         )
+        ax.set_xlim(*pca_x_limits)
+        ax.set_ylim(*pca_y_limits)
         ax.tick_params(axis="both", labelsize=5.2, length=2.0, pad=1.0)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
@@ -2678,6 +2997,7 @@ def compute_sample_size_sensitivity(
                     seed=seed + 101 * offset,
                     cvae_epochs=cvae_epochs,
                     wgan_epochs=wgan_epochs,
+                    dataset=dataset,
                 )
                 for repeat in range(int(repeats)):
                     rows.append(

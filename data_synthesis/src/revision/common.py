@@ -29,7 +29,7 @@ if str(pkg_root) not in sys.path:
 
 from models.bootstrap import sample_bootstrap
 from models.cvae import sample_cvae, train_cvae, sample_trained_cvae
-from models.gmm import sample_gmm
+from models.gmm import AIC_COMPONENTS_BY_DATASET, sample_gmm
 from models.iid_columnwise import sample_columnwise
 from util.config import Config
 from rfhack.core.rf_wrapper import RFWrapper
@@ -285,6 +285,15 @@ def sample_synthetic(dataset, data, method, seed=SEED, cvae_epochs=CVAE_EPOCHS):
             latent_prior=MAIN_CVAE_LATENT_PRIOR,
         )
         return sample_cvae(X, y, n0, n1, seed=seed, cfg=cfg)
+    if method == "GMM":
+        return sample_gmm(
+            X,
+            y,
+            n0,
+            n1,
+            seed=seed,
+            n_components=AIC_COMPONENTS_BY_DATASET.get(dataset, 2),
+        )
     return METHODS[method](X, y, n0, n1, seed=seed)
 
 def standardize_pair(X_real, X_syn):
